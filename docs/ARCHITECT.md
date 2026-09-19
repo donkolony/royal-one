@@ -3,10 +3,33 @@
 | | |
 |---|---|
 | **Scope** | Backend only (FastAPI service, database, storage, RAG, email adapter). The frontend is owned by another team and integrates through [`api.md`](api.md). |
-| **Status** | Design. No backend code exists yet. Confidence labels used below: **Decided** (team or PRD decision), **Recommended** (my proposal, reversible), **Open** (must be verified before implementing). |
+| **Status** | **Implemented** (backend v0.1.1, all 68 endpoints, 367 automated tests). Section 0 states exactly what has and has not been verified. Confidence labels used below: **Decided** (team or PRD decision), **Recommended** (the architect's proposal, reversible), **Open** (must be verified before it is relied on). |
 | **Contract** | [`api.md`](api.md) is the source of truth for every route, shape and rule. This document explains *how* to build it. |
 | **Requirements** | `Royal_Square_Financial_PRD.pdf` (mirrored in [`PRD.md`](PRD.md)). |
 | **Judging context** | 5-minute live demo, 3-minute Q&A. The visible rubric weights functionality and stability (10), technical difficulty and elegance (10), innovation (10) and design/UX (20). Only page 1 of the rubric has been seen, so 50 of 100 points are unaccounted for. |
+
+---
+
+## 0. Implementation status: verified and not verified
+
+| Area | Status | Evidence |
+|---|---|---|
+| All 68 endpoints, request validation, error envelope, role scoping | **Verified** | 367 automated tests against a real PostgreSQL 16 (bundled by the `pgserver` dev package) and the real migrations and seed. `test_contract.py` compares the running app with the endpoint index in `api.md`. |
+| Cross-client and cross-adviser isolation, draft privacy, RLS on every table | **Verified** | `test_authorization.py`. Three deliberate code breakages (scoping, upload sniffing, draft privacy) were each caught by the tests. |
+| Migrations, seed, document ingestion, `uvicorn app.main:app` | **Verified** | Run for real with the scripts in `backend/scripts/` and exercised over HTTP with `curl` (auth, uploads, dashboards, assistant refusal). |
+| Retrieval quality on the demo corpus | **Verified on synthetic documents only** | A golden set of 9 answerable and 5 unanswerable questions. Real insurer wordings have not been tried. |
+| Supabase token verification (`get_claims`), Storage upload and signed URLs, `auth.admin.create_user` | **API names and signatures verified in the installed `supabase` 2.31.0 source; not run against a live project** | The code paths are unit-tested with fakes. First contact with a real project may reveal configuration issues (see Quickstart troubleshooting). |
+| Supabase Postgres connection (direct vs pooled host, IPv6) | **Not verified** | No Supabase project was available. Prepared statements are already disabled for pooler compatibility. |
+| Groq and Gemini request/response formats | **Not verified against the live services** | Written from knowledge of the public APIs, tested only against mocked HTTP. Model names are configuration, never hardcoded. Run one real request per provider before the demo. |
+| Render deployment | **Not verified** | The start command works locally. |
+| Vector search / embeddings | **Not built** (Open, section 8.4) | Full-text search is used. |
+
+**Known limitations** (deliberate for hackathon scale):
+
+- A request holds one pooled database connection for its whole duration, including the LLM call (up to `LLM_TIMEOUT_SECONDS` per provider attempt). With the default pool of 8, several simultaneous assistant calls could starve other requests. Fix when scaling: release the connection before the model call and re-acquire to persist.
+- The rate limiter and the token cache are in-process (single instance only).
+- Email threads are filtered and paged in Python after loading the adviser's whole mailbox. Fine for a demo mailbox; move to SQL for real volumes.
+- Response bodies are dicts, not Pydantic response models, so OpenAPI documents the requests but not the responses.
 
 ---
 
@@ -52,37 +75,39 @@ There is no message queue, cache server, scheduler, or worker in v1. Each would 
 
 ---
 
-## 3. Backend layout (proposed)
+## 3. Backend layout (as built)
 
 ```
 backend/
 ├── app/
-│   ├── main.py                 # app factory: routers, middleware, exception handlers
-│   ├── core/
-│   │   ├── config.py           # pydantic-settings; the only place env vars are read
-│   │   ├── auth.py             # token verification, Principal, role dependencies
-│   │   ├── errors.py           # ApiError + handlers producing the api.md error envelope
-│   │   ├── request_id.py       # X-Request-ID middleware
-│   │   ├── logging.py          # structured logs, no bodies, no PII
-│   │   └── rate_limit.py       # in-process sliding window (per user)
-│   ├── api/v1/                 # thin route modules; one per section of api.md
-│   ├── schemas/                # Pydantic models: the contract in code (mirrors api.md §4)
-│   ├── services/               # business rules (claims, reminders, net worth, dashboards, requests)
-│   ├── repositories/           # SQL only; every query takes an explicit scope
-│   ├── rag/                    # ingest, chunking, retrieval, prompt, answer validation
-│   ├── llm/                    # provider interface, Groq, Gemini, fallback router
-│   ├── email/                  # provider interface, mock provider, flag rules, drafting
-│   └── storage/                # Supabase Storage wrapper, file signature sniffing
-├── scripts/                    # migrate.py, seed.py, ingest_docs.py
-├── tests/
-├── requirements.txt
+│   ├── main.py                 # create_app(); `uvicorn app.main:app` builds it lazily
+│   ├── seed.py                 # synthetic demo data (used by scripts/seed.py AND the tests)
+│   ├── core/                   # config, db (pool), auth (verifiers, Principal, scoping), errors, http (JSON/paging),
+│   │                           #   rate_limit, logging, clock, migrate
+│   ├── api/
+│   │   ├── deps.py             # settings/storage/llm/retriever dependencies (read from app.state)
+│   │   └── v1/                 # core_routes.py, claims_routes.py, advisor_routes.py (thin: validate, call a service)
+│   ├── schemas/models.py       # every request body (Pydantic, extra=forbid)
+│   ├── domain/constants.py     # statuses, labels, checklist, reminder types, request field definitions
+│   ├── services/               # business rules AND their SQL: clients, catalog, finance, goals, reminders, claims,
+│   │                           #   attachments, requests, dashboards, documents, assistant
+│   ├── rag/                    # chunking, ingest, retrieval (FtsRetriever)
+│   ├── llm/                    # base (router), providers (Groq, Gemini over httpx)
+│   ├── email/                  # service (mock provider, flags, links), drafting
+│   └── storage/                # base (Supabase + memory), sniff (content signatures)
+├── scripts/                    # migrate.py, seed.py, ingest_docs.py, make_token.py, dev_db.py
+├── tests/                      # 367 tests
+├── requirements.txt            # pinned runtime versions
+├── requirements-dev.txt        # + pytest, pgserver, fpdf2
 └── .env.example
-supabase/migrations/            # ordered .sql files (schema, RLS, indexes)
-data/rag-docs/                  # source PDFs + manifest.json (title, category, insurer, is_synthetic)
+supabase/migrations/            # 0001_schema.sql, 0002_reference_data.sql
+data/rag-docs/                  # 4 synthetic PDFs, manifest.json, generate_demo_docs.py
 scripts/warm_backend.sh         # pings /health before a demo
 ```
 
-Layer rule: **routes** validate input and call **services**; services hold rules and call **repositories**; repositories run SQL. Routes never contain SQL; repositories never contain business rules.
+The separate `repositories/` layer in the original plan was dropped: with hand-written SQL and small services, a second layer added indirection without benefit. SQL stays inside the service that owns it, always parameterised; the only dynamic SQL fragments (column names, `ORDER BY`) come from code allow-lists, never from user input.
+
+Layer rule: **routes** validate input and call **services**; services hold the rules and the SQL. Routes never contain SQL.
 
 ---
 
@@ -97,16 +122,13 @@ Layer rule: **routes** validate input and call **services**; services hold rules
    - load the role from `profiles` (never from token metadata),
    - reject with `401`/`403` per `api.md` §1.4.
 
-### 4.2 Token verification — **Open**
+### 4.2 Token verification (Decided, verified in the installed library)
 
-Two ways to verify a Supabase JWT. Which one is correct depends on how the project's signing keys are configured, and Supabase's current recommendation has to be **read from the official docs before implementing** (the README already has this as a TODO).
+`SupabaseTokenVerifier` calls `supabase-py`'s `auth.get_claims(token)`. Reading the installed library source (supabase-auth 2.31) shows what it does: for tokens signed with an **asymmetric** key it verifies the signature locally against the project's JWKS; for **HS256** tokens it falls back to asking Supabase Auth (`get_user`). So one call handles both project configurations. A 60-second in-memory cache (keyed by a hash of the token, never outliving the token's own expiry) avoids a network round trip per request. Expired tokens are rejected locally as `token_expired` without any network call.
 
-| Option | How | Trade-off |
-|---|---|---|
-| A. Local verification | Verify the signature in-process (with the project's public keys or shared secret, depending on project settings). | Fastest, no network call per request. Correct setup depends on the project's key configuration. |
-| B. Remote verification | Ask Supabase Auth to validate the token and return the user. | Works regardless of signing setup and is simple. Adds a network round trip per request. |
+`AUTH_MODE=local_hs256` verifies HS256 tokens with `SUPABASE_JWT_SECRET` instead. It exists for offline development and is what the tests use. It must not be used in production unless the project really signs with a shared secret.
 
-**Recommended for the hackathon:** implement B behind a small `verify_token(token) -> user_id` function, with a short in-memory cache (about 60 seconds, keyed by a hash of the token) to avoid a round trip on every call. Swap in A later without touching routes. Verify the exact client call (`supabase-py`) in the venv before relying on it.
+Whether a particular Supabase project issues asymmetric or HS256 tokens is a project setting that has **not** been checked here.
 
 ### 4.3 Scoping — one rule, one place (Decided)
 
@@ -143,7 +165,7 @@ Tables use `text` columns with `CHECK` constraints for enums (easier to migrate 
 |---|---|---|
 | `profiles` | `id` (= `auth.users.id`), `role` (`client`\|`advisor`), `full_name`, `email`, `phone` | The only source of roles. |
 | `clients` | `id` (= `profiles.id`), `adviser_id` → `profiles`, `date_of_birth`, `drivers_licence_expiry`, `client_since`, `last_annual_review_date` | In v1 every client has a login. |
-| `insurers` | `name` (unique) | Seeded from PRD §1 plus "Other". |
+| `insurers` | `name` (unique), `email_domains text[]` | Seeded from PRD §1 plus "Other" (migration 0002). `email_domains` is only used to recognise insurer senders in the simulated mailbox; the demo seed fills it with synthetic domains. |
 | `policies` | `client_id`, `insurer_id`, `category`, `product_name`, `policy_number`, `status`, `asset_description`, `cover_amount_cents`, `current_value_cents`, `premium_cents`, `premium_frequency`, `start_date`, `renewal_date`, `valuation_certificate_date` | |
 | `financial_items` | `client_id`, `kind`, `category`, `label`, `amount_cents`, `as_of_date` | Balance sheet lines. |
 | `goals` / `goal_participants` | goal: `title`, `category`, `status`, `target_amount_cents`, `current_amount_cents`, `target_date`, `created_by`; participants: `(goal_id, client_id)` | Shared goal = more than one participant. |
@@ -155,8 +177,8 @@ Tables use `text` columns with `CHECK` constraints for enums (easier to migrate 
 | `documents` | `title`, `category`, `insurer_id`, `page_count`, `version_label`, `is_synthetic`, `source_note`, `storage_path`, `status`, `content_hash`, `indexed_at` | RAG library. |
 | `document_chunks` | `document_id`, `page`, `chunk_index`, `content`, `tsv tsvector` (generated), optional `embedding vector(N)` | One chunk never spans two pages, so a page citation is exact. |
 | `assistant_conversations` / `assistant_messages` | conversation: `advisor_id`, `title`; message: `role`, `content`, `grounded`, `citations jsonb` | |
-| `email_threads` / `email_messages` | thread: `subject`, `snippet`, `flags jsonb`, `importance`, `unread`, `linked_client_id`, `linked_claim_id`, `linked_by`; message: participants, `sent_at`, `body_text` | The mock adapter reads these seeded tables so links persist. |
-| `schema_migrations` | `filename`, `applied_at` | Written by `scripts/migrate.py`. |
+| `email_threads` / `email_messages` | thread: `advisor_id` (whose mailbox), `subject`, `unread`, `manual_client_id`, `manual_claim_id`; message: `from_*`, `to_recipients`/`cc_recipients` (jsonb), `sent_at`, `body_text` | Snippets, flags, importance and automatic links are computed on read; only a manual link is stored. |
+| `schema_migrations` | `filename`, `applied_at` | Written by `app/core/migrate.py` (used by `scripts/migrate.py`). |
 
 Other details:
 
@@ -241,7 +263,7 @@ stateDiagram-v2
 
 Define `Retriever.search(question, filters, k) -> list[Chunk]` and build behind it.
 
-**Default (Recommended): Postgres full-text search.** No external dependency, no embedding cost, deterministic, and works offline in the demo. Build an *OR* query from the question's keywords and rank with `ts_rank_cd`; an *AND* query (the default behaviour of the plain query functions) returns nothing whenever one word of a natural-language question is absent from the text.
+**Default (built): Postgres full-text search.** No external dependency, no embedding cost, deterministic, and works offline in the demo. The question's keywords (stopwords removed) form an *OR* query (an *AND* query returns nothing whenever one word of a natural-language question is absent from the text). Passages are ranked by the **IDF-weighted number of keywords matched**, so a rare term such as "notification" outweighs a term such as "claim" that appears on every page; `ts_rank_cd` breaks ties. A relevance floor (at least half the keywords must match) makes off-topic questions return nothing, in which case the model is never called. This was added after the golden-question tests showed unweighted ranking putting the wrong page first.
 
 Known weakness, stated honestly: stemming does not connect all paraphrases (for example a question that says "notify" against a wording that says "notification" may stem differently). Mitigation: a golden question set (Section 12) that is run against the demo corpus, and the vector option below.
 
@@ -377,9 +399,9 @@ Environment variables are listed in [`Quickstart.md`](Quickstart.md).
 
 ---
 
-## 14. Build order
+## 14. Build order (completed)
 
-Each phase leaves a working, demonstrable system. Do not start a phase before the previous one runs end to end.
+All phases below were built in this order; each left a working system. Kept as the record of how the pieces depend on each other.
 
 | Phase | Deliverable | Endpoints (api.md) |
 |---|---|---|
@@ -405,11 +427,13 @@ Numbers refer to the endpoint index in `api.md` §9. P2 endpoints are last and m
 | D-3 | Retrieval: Postgres full-text search first; vectors (pgvector) added once an embedding model is verified. Chroma not used | Recommended | pgvector was the team's stated vector store; the embedding model is unverified, and FTS is dependable for a demo. |
 | D-4 | Data access with `psycopg` 3 and hand-written SQL in repositories, not an ORM and not the PostgREST client | Recommended | Dashboards, pipeline grouping and text search are set-based SQL; no ORM ceremony. Verify the installed version in the venv. |
 | D-5 | `supabase` Python client used only for Auth and Storage | Recommended | Small surface; verify its API in the venv. |
-| D-6 | Token verification via Supabase, with a short cache (Section 4.2) | **Open** | Depends on project signing setup and current Supabase guidance. |
+| D-6 | Token verification via `auth.get_claims`, with a short cache (Section 4.2) | Decided | Verified in the installed library source that it handles both asymmetric and HS256 tokens. Not yet run against a live project. |
 | D-7 | Reminders computed on read, no scheduler | Decided (README) | No background process to fail during the demo. |
 | D-8 | `client.id` equals the auth user id | Recommended | Avoids a second identity for the hackathon. |
 | D-9 | Email is a mock adapter labelled simulated | Decided (PRD §5.2) | Live Gmail OAuth is out of hackathon scope. |
 | D-10 | Python 3.10+ | Decided (environment) | Only 3.10.12 is installed on the development machine. |
+| D-11 | No `repositories/` layer; SQL lives in the owning service | Decided | Less indirection at this size. |
+| D-12 | Tests run on a real PostgreSQL (`pgserver`), not on mocks | Decided | The riskiest code is SQL (scoping, full-text search, constraints); mocks would not test it. |
 
 ---
 
@@ -422,7 +446,8 @@ Numbers refer to the endpoint index in `api.md` §9. P2 endpoints are last and m
 | Supabase connectivity (pooler/IPv6, credentials) | Whole API fails | Verify connection settings on day one; keep a local Postgres option for development |
 | Token verification misconfigured | Nobody can log in | Build and test `GET /me` first (Phase 1) before anything depends on it |
 | FTS misses a paraphrased question | Wrong refusal in the demo | Golden question set; rehearse with known questions; add vectors if time permits |
-| Scope creep | Unfinished P0 | P2 endpoints stay `501`; the build order is fixed |
+| Scope creep | Unfinished P0 | Nothing is left as `501` except the two Gmail OAuth routes, which are deliberately reserved |
+| Several simultaneous LLM calls exhaust the connection pool | Slow or failing requests during a busy demo | Per-user rate limit; keep the demo to a few concurrent users; see Known limitations for the proper fix |
 | Unverified libraries or APIs | Time lost | Verify each dependency in the activated venv before designing around it; do not trust this document's library names as verified |
 
 ---

@@ -2,7 +2,7 @@
 
 **A two-sided client and adviser platform for Royal Square Financial. Faster claims, clearer goals, automated reminders, and a document assistant that cites its sources.**
 
-> Built for **AfriHack 2026** (Cape Town). Status: **in development, hackathon prototype**. Design documents and the API contract are written; the backend code is not built yet. All data in this repository is synthetic. Nothing here connects to Royal Square's production systems.
+> Built for **AfriHack 2026** (Cape Town). Status: **in development, hackathon prototype**. The **backend is built and tested** (all 68 endpoints in the API contract, 367 automated tests, Supabase schema, seed data, document assistant). The frontend is not part of this work. All data in this repository is synthetic. Nothing here connects to Royal Square's production systems.
 
 ## Documentation
 
@@ -10,8 +10,8 @@
 |---|---|
 | [docs/Royal_Square_Financial_PRD.pdf](docs/Royal_Square_Financial_PRD.pdf) | The client's requirements (source of truth) |
 | [docs/PRD.md](docs/PRD.md) | Markdown copy of the PDF plus team notes |
-| [docs/api.md](docs/api.md) | **API contract.** Share with the frontend team |
-| [docs/ARCHITECT.md](docs/ARCHITECT.md) | Backend architecture, decisions and build order |
+| [docs/api.md](docs/api.md) | **API contract** (implemented). Share with the frontend team |
+| [docs/ARCHITECT.md](docs/ARCHITECT.md) | Backend architecture, decisions, and what is and is not verified |
 | [docs/Quickstart.md](docs/Quickstart.md) | Backend setup, run, test and deploy |
 | [docs/TECHSTACK.md](docs/TECHSTACK.md) | Stack choices and their verification status |
 | [docs/DESIGN.md](docs/DESIGN.md) | Screens, flows and product design principles |
@@ -85,22 +85,20 @@ Key decisions:
 
 ## Repository structure
 
-Folders marked *(planned)* do not exist yet.
-
 ```
 <repo root>/
 ├── frontend/          # React app (client app + adviser portal, role-based routes)
 ├── backend/           # FastAPI service (routers, services, RAG, LLM and email adapters)
 ├── supabase/          # migrations: schema, RLS policies, indexes
-├── data/rag-docs/     # (planned) approved documents for retrieval (synthetic ones are labelled)
+├── data/rag-docs/     # approved documents for retrieval (4 synthetic PDFs, clearly labelled)
 ├── docs/              # PRD, API contract, architecture, quickstart, design, tech stack
-├── scripts/           # (planned) helper scripts, e.g. warm_backend.sh for the hosted backend
+├── scripts/           # warm_backend.sh (wake the hosted backend before a demo)
 ├── AGENTS.md
 ├── CLAUDE.md
 └── README.md
 ```
 
-Inside `backend/` the planned layout is described in [docs/ARCHITECT.md](docs/ARCHITECT.md) §3.
+Inside `backend/` the layout is described in [docs/ARCHITECT.md](docs/ARCHITECT.md) §3.
 
 ## Getting started
 
@@ -113,7 +111,7 @@ The full backend procedure, with a note on what has and has not been verified, i
 - A Supabase project
 - An API key for Groq and/or Gemini
 
-### Backend (planned; the scaffold does not exist yet)
+### Backend
 
 1. **Create and activate the virtual environment first**, before installing anything:
    ```bash
@@ -122,10 +120,13 @@ The full backend procedure, with a note on what has and has not been verified, i
    source .venv/bin/activate        # Windows: .venv\Scripts\activate
    ```
 2. Create the environment file: `cp .env.example .env`, then fill it in. Never commit it.
-3. `pip install -r requirements.txt`
-4. Apply the migrations and load the demo data: `python scripts/migrate.py`, then `python scripts/seed.py`
+3. `pip install -r requirements-dev.txt` (runtime and tests; production needs only `requirements.txt`)
+4. Apply the migrations and load the demo data: `python scripts/migrate.py`, then `python scripts/seed.py --reset` (on Supabase add `--auth`)
 5. Index the assistant's documents: `python scripts/ingest_docs.py`
 6. `uvicorn app.main:app --reload`. Interactive API docs are served at `/docs`.
+7. `pytest` runs the whole suite in about a minute with no external services.
+
+No Supabase project? [docs/Quickstart.md](docs/Quickstart.md) §4 runs everything locally on a bundled PostgreSQL.
 
 ### Frontend
 
@@ -140,7 +141,8 @@ Owned by the frontend team. Copy `frontend/.env.example` to `frontend/.env` (whe
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-side key. Never expose to the browser |
 | `DATABASE_URL` | Postgres connection string from the Supabase project |
-| `LLM_PROVIDER` / `LLM_FALLBACK_PROVIDER` | `groq` or `gemini` (primary and fallback) |
+| `AUTH_MODE` / `STORAGE_BACKEND` | `supabase` (default) or `local_hs256` / `memory` for offline development |
+| `LLM_PROVIDER` / `LLM_FALLBACK_PROVIDER` | `groq`, `gemini` or `none` (primary and fallback) |
 | `GROQ_API_KEY` / `GEMINI_API_KEY` | Provider keys |
 | `GROQ_MODEL` / `GEMINI_MODEL` | Model names, set from each provider's current documentation |
 | `EMAIL_PROVIDER` | `mock` (default) or `gmail` (not built) |
@@ -148,7 +150,7 @@ Owned by the frontend team. Copy `frontend/.env.example` to `frontend/.env` (whe
 
 The complete list (upload limits, signed URL lifetime, rate limit, bucket names) is in [docs/Quickstart.md](docs/Quickstart.md) §3.
 
-JWT verification depends on the Supabase project's current signing setup and has not been decided. The options and the recommendation are in [docs/ARCHITECT.md](docs/ARCHITECT.md) §4.2. `[TODO: record the chosen method once verified against current Supabase documentation]`
+Token verification uses `supabase-py`'s `get_claims` (see [docs/ARCHITECT.md](docs/ARCHITECT.md) §4.2). Whether your Supabase project issues asymmetric or HS256 tokens is a project setting to check when first connecting.
 
 **Frontend (`frontend/.env`)**
 
@@ -164,7 +166,7 @@ JWT verification depends on the Supabase project's current signing setup and has
 - **Backend:** Render web service, with the root directory set to `backend`.
 - **Database and storage:** Supabase.
 
-Free hosting tiers can put the backend to sleep when idle, which delays the first request. Use `scripts/warm_backend.sh` (planned) before demos.
+Free hosting tiers can put the backend to sleep when idle, which delays the first request. Use `scripts/warm_backend.sh https://<backend-host>` before demos.
 
 ## Security and data notes
 

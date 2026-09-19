@@ -4,7 +4,7 @@
 
 Related documents: [`ARCHITECT.md`](ARCHITECT.md) (how the backend is built and why), [`api.md`](api.md) (API contract), [`Quickstart.md`](Quickstart.md) (setup).
 
-**Status labels:** **Decided** = the team's choice. **Recommended** = the backend architect's proposal, reversible. **Open** = must be verified before it is used. Nothing here has been checked against live vendor documentation unless it says so; library and model names must be verified in the project's virtual environment or the vendor's docs before being relied on.
+**Status labels:** **Decided** = the team's choice. **Recommended** = the backend architect's proposal, reversible. **Open** = must be verified before it is used. The backend is built: the Python packages below are **verified** (installed and exercised by the test suite) at the pinned versions in `backend/requirements.txt`. Vendor services (Supabase project, Groq, Gemini, Render) have **not** been run for real; see [`ARCHITECT.md`](ARCHITECT.md) §0.
 
 ---
 
@@ -20,7 +20,7 @@ Related documents: [`ARCHITECT.md`](ARCHITECT.md) (how the backend is built and 
 | Frontend hosting | Vercel | Decided | React app |
 | Backend hosting | Render | Decided | FastAPI service |
 | LLM | Groq (primary), Google Gemini (fallback) | Decided | RAG answers and email drafting |
-| Vector store | Supabase pgvector | Decided, timing **Open** | Added once an embedding model is verified; full-text search first |
+| Vector store | Supabase pgvector | Decided, timing **Open** | Not built. Retrieval uses PostgreSQL full-text search with IDF-weighted ranking; vectors are added once an embedding model is verified |
 | Email | Mock adapter now; Gmail API + OAuth 2.0 later | Decided | Adviser email assistance (simulated in the hackathon build) |
 
 Supported Python versions: **3.10 or newer** (the development machine has 3.10.12).
@@ -42,7 +42,7 @@ The backend team does not modify the frontend.
 
 Provides the REST API described in [`api.md`](api.md), automatic OpenAPI/Swagger docs, file uploads, the RAG endpoint, reminder evaluation, and the email adapter.
 
-Expected Python packages (**Recommended**; verify each and pin the versions actually installed in the venv):
+Python packages (verified; exact versions are pinned in `backend/requirements.txt`):
 
 | Package | Use |
 |---|---|
@@ -53,13 +53,15 @@ Expected Python packages (**Recommended**; verify each and pin the versions actu
 | `httpx` | HTTP client (LLM providers, if plain HTTP is simpler than an SDK) |
 | `python-multipart` | File uploads |
 | `pypdf` | Per-page PDF text extraction for RAG ingestion |
-| `pytest` | Tests |
+| `PyJWT` | Local HS256 token verification (offline development and tests) |
+| `tzdata` | South African time zone data |
+| `pytest`, `pgserver`, `fpdf2` (dev only) | Tests on a real bundled PostgreSQL; generating the synthetic demo PDFs |
 
-Provider SDKs (Groq, Gemini) are chosen after reading each provider's current documentation.
+No Groq or Gemini SDK is used: both providers are called over plain HTTPS with `httpx` (see `backend/app/llm/providers.py`). Those request formats are **not verified against the live services**.
 
 **Changes from the previous version of this file**
 
-- "supabase or sqlalchemy + asyncpg" is resolved to `psycopg` with SQL in repositories (`ARCHITECT.md` D-4).
+- "supabase or sqlalchemy + asyncpg" is resolved to `psycopg` with hand-written SQL inside the services (`ARCHITECT.md` D-4, D-11).
 - "langchain or llama-index" is dropped: one retrieval path and one prompt do not need a framework (D-2).
 - "pgvector or Chroma" is resolved to pgvector, in line with the README (D-3).
 

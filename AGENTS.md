@@ -14,7 +14,7 @@ This file describes who does what: the people, the AI agents that help build the
 
 ## 2. AI coding agent (Claude Code)
 
-**Scope for the current work: backend only.**
+**Scope for the current work: backend only.** The backend is built and tested (see `docs/ARCHITECT.md` §0 for what is and is not verified).
 
 Rules the agent follows in this repository:
 
@@ -25,8 +25,9 @@ Rules the agent follows in this repository:
 5. **Do not assert unverified facts.** Library names, APIs, model names, pricing, free-tier limits and vendor behaviour are verified (in the venv or the vendor's docs) before being relied on, and marked **Open** or **Confirm** in the docs until they are.
 6. **No secrets in Git.** Keys live in environment variables only. Never print or log tokens, bank details, email bodies or document text.
 7. **Synthetic data only**, labelled as synthetic. Nothing connects to Royal Square's production systems.
-8. **Keep the MVP small.** Follow the build order in [`docs/ARCHITECT.md`](docs/ARCHITECT.md) §14. P2 endpoints may stay `501 not_implemented`.
+8. **Keep the MVP small.** Follow the build order in [`docs/ARCHITECT.md`](docs/ARCHITECT.md) §14. Only the two Gmail OAuth routes are reserved as `501 not_implemented`.
 9. **Do not commit or push unless asked.**
+10. **Run `pytest` (in the activated venv) before declaring backend work done.** The contract test fails if the code and `docs/api.md` disagree.
 
 ## 3. AI features inside the product
 

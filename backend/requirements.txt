@@ -1,0 +1,13 @@
+# Runtime dependencies. Pinned to the versions installed and tested in backend/.venv
+# (Python 3.10.12). Re-pin after upgrading and re-running the test suite.
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+pydantic==2.13.5
+pydantic-settings==2.15.0
+psycopg[binary,pool]==3.3.6
+httpx==0.28.1
+python-multipart==0.0.32
+pypdf==6.19.0
+PyJWT==2.14.0
+supabase==2.31.0
+tzdata==2026.4

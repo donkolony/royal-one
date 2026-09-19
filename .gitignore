@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# local dev database (scripts/dev_db.py)
+backend/.localdb/

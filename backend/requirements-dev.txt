@@ -1,0 +1,6 @@
+-r requirements.txt
+# Tests: pgserver bundles a real PostgreSQL so the SQL is tested for real.
+pytest==9.1.1
+pgserver==0.1.4
+# Only used by data/rag-docs/generate_demo_docs.py to build the synthetic PDFs.
+fpdf2==2.8.8

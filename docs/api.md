@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Version** | v0.1 (draft contract) |
-| **Status** | **Design only. Nothing in this document is implemented yet.** The FastAPI app will serve the same contract at `/docs` (Swagger UI) and `/openapi.json`. Once the backend exists, the running server is the source of truth and any difference from this file is a bug in one of the two. |
+| **Version** | v0.1.1 |
+| **Status** | **Implemented** in `backend/` (all 68 endpoints) and covered by an automated test suite. A contract test (`backend/tests/test_contract.py`) fails if the endpoint index in Section 9 and the running app ever disagree. The server also serves `/docs` (Swagger UI) and `/openapi.json`. Request bodies are validated by the server; response shapes are documented here (Section 4) and asserted by tests, but are not yet declared as response models in OpenAPI. If this file and the server ever differ, that is a bug in one of the two. |
 | **Owner** | Backend (see `AGENTS.md`) |
 | **Audience** | Frontend developers (integrate against this) and the backend agent (implement this) |
 | **Data** | Synthetic demo data only. No production Royal Square systems are connected. |
@@ -19,7 +19,7 @@
 | **P1** | Should have. Build if time permits. |
 | **P2** | Could have, or reserved. The route may return `501 not_implemented` in the hackathon build. |
 
-**Provenance markers.** Where this document states something that is a *proposal by the backend* and not a fact from the PRD or a verified external source, it is marked **(proposal)** or **(requires confirmation)**. Everything in this contract is our own design; no external API behaviour is asserted except where noted in Section 7.1.
+**Provenance markers.** Where this document states something that is a *proposal by the backend* and not a fact from the PRD or a verified external source, it is marked **(proposal)** or **(requires confirmation)**. Everything in this contract is our own design; no external API behaviour is asserted except where noted in Section 7.1. The LLM providers' HTTP formats (Groq, Gemini) have **not** been verified against the live services; see `docs/ARCHITECT.md`.
 
 ---
 
@@ -145,7 +145,7 @@ Every non-2xx response has this body. FastAPI's default `{"detail": ...}` shape 
 
 ### 1.7 Caching **(proposal)**
 
-Static reference endpoints (`GET /meta`, `GET /insurers`, `GET /claims/checklist`, `GET /requests/types`) send `Cache-Control: public, max-age=3600`. All other endpoints send `Cache-Control: no-store`. The checklist is intentionally cacheable so a PWA can show it with poor connectivity at an accident scene.
+`GET /meta` (no login needed) sends `Cache-Control: public, max-age=3600`. The other static reference endpoints (`GET /insurers`, `GET /claims/checklist`, `GET /requests/types`) need a login, so they send `Cache-Control: private, max-age=3600`. Every other response sends `Cache-Control: no-store`. The checklist is intentionally cacheable so a PWA can show it with poor connectivity at an accident scene.
 
 ### 1.8 Rate limits **(proposal)**
 
@@ -279,10 +279,10 @@ Lead times and rules are **(proposal)** except the examples that come from PRD �
 | `retirement_fee_renewal` | Retirement fee renewal | `advisor` | `policy.renewal_date` where `category = retirement` | 30 |
 | `birthday` | Client birthday | `advisor` | next occurrence of `client.date_of_birth` | 7 |
 | `anniversary` | Client anniversary | `advisor` | next occurrence of `client.client_since` **(requires confirmation: PRD does not define "anniversary")** | 7 |
-| `claim_police_report` | Report to police within 48 hours | `client` | claim `police.report_deadline_at` while `police.reported` is not `true` and the claim is `draft` or `submitted` | 0 |
+| `claim_police_report` | Report to police within 48 hours | `client` | claim `police.report_deadline_at` while `police.reported` is not `true` and the claim is `draft` or `submitted` | 2 (the deadline is at most two days away, so the reminder shows as soon as the claim is started) |
 | `custom` | Custom reminder | any | manual (`POST /reminders`) | — |
 
-`lead_days`: a rule-generated reminder appears once `due_date − today ≤ lead_days`. The PRD says "the list of reminder types will keep growing"; new types are added server-side and appear in `GET /meta`. **The frontend must render unknown `type` values gracefully** (fall back to `title`).
+`lead_days`: a rule-generated reminder appears once `due_date − today ≤ lead_days`, and only if it is not more than 90 days overdue (so stale data does not flood the list). Birthday and anniversary reminders are for the *next* occurrence, so once the day passes an unactioned one is dismissed automatically. The PRD says "the list of reminder types will keep growing"; new types are added server-side and appear in `GET /meta`. **The frontend must render unknown `type` values gracefully** (fall back to `title`).
 
 ### 3.3 Request types (`RequestType`) — PRD §4.5
 
@@ -812,7 +812,7 @@ Auth: `advisor`. The adviser home screen.
   "upcoming_reminders": [ /* Reminder[] due within 14 days, max 10 */ ]
 }
 ```
-`needs_attention` (`kind`: `claim` | `request` | `reminder` | `email`) is derived server-side, sorted most urgent first, max 10:
+`needs_attention` (`kind`: `claim` | `request` | `reminder` | `email`; `link.resource`: `claim` | `request` | `reminder` | `email_thread`) is derived server-side, sorted most urgent first, max 10. For reminders `due_at` is midnight South African time on the due date; it is `null` for the other kinds:
 1. overdue reminders, 2. claims in `submitted`, 3. requests in `submitted`, 4. flagged unread email threads, 5. claims with `days_in_status` ≥ 7 **(proposal)**.
 
 ### 5.4 Clients (adviser)
@@ -820,8 +820,8 @@ Auth: `advisor`. The adviser home screen.
 #### `GET /clients` — P0
 Auth: `advisor`. Assigned clients.
 
-Query: `search` (matches name or email, case-insensitive), `limit`, `offset`, `sort` (`full_name` default, `-created_at`).
-`200`: `Page<ClientDetail>`.
+Query: `search` (matches name or email, case-insensitive), `limit`, `offset`, `sort` (`full_name` default, `full_name`, `-full_name`, `created_at`, `-created_at`).
+`200`: `Page<ClientDetail>`. `counts.open_claims` never includes a client's private draft claim.
 
 #### `GET /clients/{client_id}` — P0
 Auth: `advisor` (assigned). `200`: `ClientDetail`. `404` if not assigned.
@@ -1038,7 +1038,7 @@ curl -X POST "$API/claims/$ID/attachments" \
   -H "Authorization: Bearer $TOKEN" \
   -F "kind=vehicle_photo" -F "label=Rear bumper" -F "file=@rear.jpg;type=image/jpeg"
 ```
-`201`: `Attachment`. Errors: `413 payload_too_large`, `415 unsupported_media_type` (also when the content does not match the type or the `kind` does not accept that type), `422 validation_error` (attachment count limit reached). Adds an `attachment_added` timeline event visible to both parties once the claim is not a draft.
+`201`: `Attachment`. Errors: `413 payload_too_large`, `415 unsupported_media_type` (also when the content does not match the type or the `kind` does not accept that type), `422 validation_error` (attachment count limit reached). Adds an `attachment_added` timeline event visible to both parties once the claim is not a draft (no event is written while it is still a draft). The `Location` header points at the claim.
 
 #### `DELETE /claims/{claim_id}/attachments/{attachment_id}` — P1
 Auth: `client` (own), only while the claim is `draft`. `204`. After submission, attachments are part of the record and cannot be removed.
@@ -1054,6 +1054,8 @@ Required to submit (else `422 validation_error`, one `details` entry per gap, `f
 - `vehicle_use`
 - at least one photo attachment (`road_photo`, `vehicle_photo`, `people_photo` or `plate_or_disc_photo`)
 - one `drivers_licence` attachment
+
+The `field` values are exactly the entries of `missing_fields`: `insurer_id`, `incident.occurred_at`, `incident.location_text`, `incident.description`, `police.reported`, `police.case_number`, `driver.is_policyholder`, `driver.full_name`, `driver.relationship_to_policyholder`, `vehicle_use`, `attachments.photo`, `attachments.drivers_licence`. `code` is always `required`.
 
 Not required: witnesses, third parties, `accident_sketch` (encouraged in the UI, PRD §4.4 B).
 
@@ -1188,9 +1190,9 @@ Any authenticated user. Cacheable. Describes each request type and its payload f
   }
 ] }
 ```
-Field `type` values: `string`, `text`, `date`, `integer`, `boolean`, `enum`, `string_list`, `object_list`. Account-type options and the exact patterns are **(proposal; requires confirmation)**.
+Field `type` values: `string`, `text`, `date`, `integer`, `boolean`, `enum`, `uuid`, `string_list`, `date_list`, `object_list`. Constraint keys a field may carry: `required`, `max_length`, `pattern`, `options`, `min`, `max`, `min_items`, `max_items`, `not_before` (a date that may not precede another field), `not_in_past`, `ref` (`policy` or `motor_policy`: the id must be one of the client's policies), and `item_fields` (for `object_list`). Error `field` paths are `payload.<name>`, `payload.<name>[<i>]` and `payload.<name>[<i>].<key>`. Account-type options and the exact patterns are **(proposal; requires confirmation)**.
 
-Payload definitions for the remaining types (also returned by this endpoint):
+`max_attachments` on each type is the upper limit for `POST /requests/{id}/attachments` (0 means the type accepts none; `address_change` and `bank_details_change` allow 3, `client_information` 5). Payload definitions for the remaining types (also returned by this endpoint):
 
 | Type | Payload fields |
 |---|---|
@@ -1299,7 +1301,9 @@ Contract guarantees (the backend must enforce these; the frontend can rely on th
 5. Document text is treated as data, not instructions (prompt-injection defence): instructions inside a document do not change assistant behaviour.
 6. Example answer values above are illustrative and use synthetic wording. **They are not statements about any real insurer's policy.**
 
-Errors: `429 rate_limited`; `503 llm_unavailable` (both providers failed; retry after `retry_after_seconds`); `422` (bad filters); `404` (`conversation_id` unknown or not yours).
+Errors: `429 rate_limited`; `503 llm_unavailable` (both providers failed, or none is configured, and the question had relevant passages; retry after `retry_after_seconds`); `422` (bad filters); `404` (`conversation_id` unknown or not yours).
+
+Behaviour worth knowing: a question with **no relevant passage never calls the model** and answers with the `grounded: false` refusal, so it still works when the LLM is down or unconfigured. When no LLM is configured, `model` is `{ "provider": "none", "name": "" }` on such a refusal. Malformed model output is retried once and then also becomes the refusal (not an error). A very short follow-up (two or fewer keywords) borrows the terms of the previous question in the conversation for retrieval.
 
 #### `GET /assistant/conversations` — P2
 Auth: `advisor`. Own conversations, newest first. `200`: `Page<{ id, title, created_at, updated_at, message_count }>`; `title` is the first question truncated to 80 chars.
@@ -1564,5 +1568,6 @@ All paths except `/health` are relative to `/api/v1`.
 | Version | Date | Change |
 |---|---|---|
 | 0.1 | 2026-09-19 | First draft of the contract from PRD v1.0. Not yet implemented. |
+| 0.1.1 | 2026-09-19 | Implemented; contract test added. Changes found while implementing and testing: `claim_police_report` `lead_days` is 2, not 0 (its deadline is 48 h away, so with 0 the reminder never appeared); reference endpoints that need a login are `private`-cached; request field types gained `uuid` and `date_list`; `ClientDetail.counts.open_claims` excludes drafts; reminders older than 90 days overdue are not created; `POST /claims/{id}/attachments` writes no timeline event for a draft; documented the `missing_fields` paths, the assistant's no-LLM behaviour and the `needs_attention` link resources. No breaking changes to shapes. |
 
 Any change after frontend work starts must be recorded here and announced to the frontend team. Additive changes are safe; renames and removals need agreement first.

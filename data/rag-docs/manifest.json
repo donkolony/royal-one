@@ -1,0 +1,40 @@
+{
+  "documents": [
+    {
+      "file": "demo-motor-policy-wording.pdf",
+      "title": "Demo Motor Policy Wording (Synthetic)",
+      "category": "policy_wording",
+      "insurer": null,
+      "is_synthetic": true,
+      "version_label": "demo v1",
+      "source_note": "Synthetic demo document written for software demonstration. Not a real policy, process or regulation."
+    },
+    {
+      "file": "demo-claims-handling-process.pdf",
+      "title": "Demo Claims Handling Process (Synthetic)",
+      "category": "internal_process",
+      "insurer": null,
+      "is_synthetic": true,
+      "version_label": "demo v1",
+      "source_note": "Synthetic demo document written for software demonstration. Not a real policy, process or regulation."
+    },
+    {
+      "file": "demo-data-handling-policy.pdf",
+      "title": "Demo Data Handling Policy (Synthetic)",
+      "category": "company_policy",
+      "insurer": null,
+      "is_synthetic": true,
+      "version_label": "demo v1",
+      "source_note": "Synthetic demo document written for software demonstration. Not a real policy, process or regulation."
+    },
+    {
+      "file": "demo-compliance-notes.pdf",
+      "title": "Demo Compliance Notes (Synthetic)",
+      "category": "regulation",
+      "insurer": null,
+      "is_synthetic": true,
+      "version_label": "demo v1",
+      "source_note": "Synthetic demo document written for software demonstration. Not a real policy, process or regulation."
+    }
+  ]
+}

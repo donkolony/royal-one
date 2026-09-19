@@ -1,16 +1,10 @@
 # Backend Quickstart
 
-How to set up, run and check the Royal Square backend on a development machine. Frontend setup is not covered here.
+How to set up, run, test and deploy the Royal Square backend. Frontend setup is not covered here.
 
-**Read this first: what is verified and what is not.**
+**What is verified.** Everything marked **Verified** was run on the development machine (Linux, Python 3.10.12). Steps that need an external service that was not available (a Supabase project, Groq/Gemini keys, Render) are marked **Confirm**: they follow the library APIs and vendor conventions but have not been run for real, so read the vendor's current documentation and expect to adjust.
 
-| Marker | Meaning |
-|---|---|
-| **Verified** | Run on the development machine (Linux, Python 3.10.12) while writing this document. |
-| **Planned** | Describes files and commands that do not exist yet. They will work once the scaffold phase (`ARCHITECT.md` §14, Phase 0) is done. Treat any failure as a bug in the scaffold or in this document. |
-| **Confirm** | Depends on an external service's current documentation, which has not been checked. Read the official docs first. |
-
-Related documents: [`api.md`](api.md) (the API contract), [`ARCHITECT.md`](ARCHITECT.md) (design and build order), [`PRD.md`](PRD.md) (requirements).
+Related: [`api.md`](api.md) (the API contract) · [`ARCHITECT.md`](ARCHITECT.md) (design and verification status) · [`PRD.md`](PRD.md)
 
 ---
 
@@ -18,166 +12,147 @@ Related documents: [`api.md`](api.md) (the API contract), [`ARCHITECT.md`](ARCHI
 
 | Requirement | Notes |
 |---|---|
-| Python **3.10 or newer** | **Verified:** `python3 --version` reports 3.10.12 on the dev machine, and `python3 -m venv` works there. The code must not use 3.11-only features. |
-| `git` | |
-| A Supabase project | You need its URL, the service-role key, the database connection string, and (for the frontend only) the anon key. |
-| An LLM API key | Groq (primary) and/or Gemini (fallback). |
-| `curl` | For the smoke tests below. |
+| Python **3.10 or newer** | **Verified** with 3.10.12. The code avoids 3.11-only features. |
+| `git`, `curl` | |
+| For the hosted setup | A Supabase project (URL, service-role key, database connection string) and an LLM key (Groq and/or Gemini). **Not needed** for offline development (Section 4). |
 
 ---
 
-## 2. Create and activate the virtual environment — always first
+## 2. Create and activate the virtual environment: always first
 
-**Rule: nothing is installed until the virtual environment is created and activated.** This keeps project packages out of the system Python.
+**Nothing is installed until the virtual environment exists and is active.** This keeps project packages out of the system Python.
 
-**Verified** (Linux/macOS):
+**Verified:**
 ```bash
 cd backend
 python3 -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate          # Windows (untested): .venv\Scripts\Activate.ps1
+which python                       # must point inside backend/.venv/
+pip install --upgrade pip
+pip install -r requirements-dev.txt   # runtime + tests. Production needs only requirements.txt
 ```
-Windows (PowerShell): `.venv\Scripts\Activate.ps1` (**Planned**, not tested).
+If `which python` does not show `.venv`, stop and activate again. `.venv/` and `.env` are already in `.gitignore`. Leave the environment with `deactivate`.
 
-Check that it is active before any `pip install`:
-```bash
-which python        # must point inside backend/.venv/
-python --version    # 3.10.x or newer
-pip --version       # must also point inside backend/.venv/
-```
-If `which python` does not show `.venv`, stop and activate again. `.venv/` is already in `.gitignore`.
-
-To leave the environment: `deactivate`.
+`requirements.txt` pins the exact versions that passed the test suite (fastapi 0.141.1, pydantic 2.13.5, psycopg 3.3.6, supabase 2.31.0, and so on). Re-pin after any upgrade and re-run the tests.
 
 ---
 
-## 3. Create the `.env` file
-
-**Planned.** `backend/.env.example` is created in the scaffold phase.
+## 3. Configuration (`backend/.env`)
 
 ```bash
-cp .env.example .env        # run inside backend/
+cp .env.example .env               # then edit. NEVER commit .env or paste its contents anywhere
 ```
-Then fill in the values below. `.env` is in `.gitignore`; **never commit it**, never paste its contents into chat, issues or docs.
-
-### Environment variables
+The app refuses to start, naming every missing variable, if a required one is unset. `.env.example` documents each variable; the important ones:
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `ENVIRONMENT` | no | `development` (default) or `production`. |
-| `LOG_LEVEL` | no | `INFO` (default). |
-| `SUPABASE_URL` | yes | Supabase project URL. |
-| `SUPABASE_SERVICE_ROLE_KEY` | yes | Server-side key. **Never expose to the browser.** |
-| `DATABASE_URL` | yes | Postgres connection string from the Supabase project. **Confirm** which host to use (direct or pooled) from the project's settings. |
-| `LLM_PROVIDER` | yes | `groq` or `gemini`. |
-| `LLM_FALLBACK_PROVIDER` | no | The other provider, used when the primary fails. |
-| `GROQ_API_KEY`, `GROQ_MODEL` | if using Groq | The model name is **not** hardcoded. **Confirm** current models in Groq's documentation. |
-| `GEMINI_API_KEY`, `GEMINI_MODEL` | if using Gemini | As above. |
-| `EMAIL_PROVIDER` | no | `mock` (default). `gmail` is reserved and not built. |
-| `ALLOWED_ORIGINS` | yes | Comma-separated frontend origins, e.g. `http://localhost:5173`. |
-| `MAX_UPLOAD_BYTES` | no | Default 10485760 (10 MB). |
-| `SIGNED_URL_TTL_SECONDS` | no | Default 600. |
-| `ASSISTANT_RATE_LIMIT_PER_MIN` | no | Default 10 per user. |
-| `ATTACHMENTS_BUCKET`, `RAG_DOCS_BUCKET` | no | Storage bucket names; defaults `attachments` and `rag-docs`. |
+| `DATABASE_URL` | yes | Postgres connection string. |
+| `AUTH_MODE` | no | `supabase` (default) or `local_hs256` (offline development and tests). |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | if `AUTH_MODE=supabase` or `STORAGE_BACKEND=supabase` | The service-role key is server-side only. Never expose it to the browser. |
+| `SUPABASE_JWT_SECRET` | if `AUTH_MODE=local_hs256` | Shared secret for local token signing. |
+| `STORAGE_BACKEND` | no | `supabase` (default) or `memory` (offline development; files vanish on restart). |
+| `LLM_PROVIDER`, `LLM_FALLBACK_PROVIDER` | no | `groq`, `gemini` or `none` (default). |
+| `GROQ_API_KEY`, `GROQ_MODEL` / `GEMINI_API_KEY`, `GEMINI_MODEL` | if that provider is selected | Model names are never defaulted: take them from the provider's current documentation. |
+| `ALLOWED_ORIGINS` | no | Comma-separated frontend origins, exact match (default `http://localhost:5173`). |
+| `MAX_UPLOAD_BYTES`, `MAX_ATTACHMENTS_PER_CLAIM`, `MAX_ATTACHMENTS_PER_REQUEST`, `SIGNED_URL_TTL_SECONDS`, `ASSISTANT_RATE_LIMIT_PER_MIN`, `LLM_TIMEOUT_SECONDS`, `DB_POOL_MIN`, `DB_POOL_MAX` | no | Limits, with the defaults shown in `.env.example`. |
+| `SEED_DEMO_PASSWORD` | only for `seed.py --auth` | Password for the demo Supabase Auth users. Choose your own. |
 
-The frontend has its own variables (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_API_URL`); see the README. The backend never needs the anon key for data access.
-
-The app fails at startup, naming the variable, if a required one is missing.
+The frontend has its own variables (see the README). The backend never uses the anon key.
 
 ---
 
-## 4. Install dependencies
+## 4. Path A: offline development (no Supabase, no LLM key)
 
-**Planned.** Run only with the virtual environment active (Section 2).
+**Verified.** Runs everything except real Supabase and real LLMs, on a local PostgreSQL bundled by the `pgserver` dev package.
 
 ```bash
-pip install --upgrade pip
-pip install -r requirements.txt
+# in backend/, venv active
+python scripts/dev_db.py                 # starts Postgres, applies migrations, prints DATABASE_URL=...
 ```
-The expected dependency set is described in `TECHSTACK.md`. `requirements.txt` will be generated in the scaffold phase and **pinned to the versions actually installed and tested in the venv**, not to versions copied from documentation.
-
----
-
-## 5. Set up the database
-
-**Planned.**
-
-1. Create a Supabase project (Supabase dashboard).
-2. Put its connection string in `DATABASE_URL` (Section 3).
-3. Apply the migrations in `supabase/migrations/` in order:
-   ```bash
-   python scripts/migrate.py
-   ```
-   The script records applied files in a `schema_migrations` table and is safe to re-run.
-4. Load the synthetic demo data:
-   ```bash
-   python scripts/seed.py
-   ```
-   The seed creates one adviser, a few clients with policies, goals, reminders, one claim in each interesting status, requests, and simulated email threads. It also creates the matching Supabase Auth users. **Credentials are printed by the script once and are never committed.** All data is synthetic.
-5. Index the assistant's documents:
-   ```bash
-   python scripts/ingest_docs.py
-   ```
-   Source PDFs and `manifest.json` live in `data/rag-docs/`. Demo documents are labelled synthetic.
-
----
-
-## 6. Run the API
-
-**Planned.**
+Put that `DATABASE_URL` in `.env`, together with:
+```
+AUTH_MODE=local_hs256
+SUPABASE_JWT_SECRET=<any random string of 32+ characters>
+STORAGE_BACKEND=memory
+LLM_PROVIDER=none
+```
+Then:
 ```bash
+python scripts/migrate.py                # safe to re-run: "nothing (already up to date)"
+python scripts/seed.py --reset           # synthetic demo data (Section 6)
+python scripts/ingest_docs.py            # indexes the 4 synthetic PDFs in data/rag-docs/
 uvicorn app.main:app --reload --port 8000
+python scripts/make_token.py client1@demo.example     # prints a token for a demo user
+python scripts/dev_db.py --stop          # when finished
 ```
-
-Smoke tests (with the server running):
+Try it:
 ```bash
-curl -s http://localhost:8000/health
-# expected: {"status":"ok","version":"0.1.0","time":"…"}
-
-curl -s http://localhost:8000/api/v1/meta | head -c 300
-# expected: JSON containing "api_version":"v1"
-
-curl -s -i http://localhost:8000/api/v1/me
-# expected: HTTP 401 with {"error":{"code":"unauthenticated",…}}
+TOKEN=$(python scripts/make_token.py client1@demo.example)
+curl -s localhost:8000/health
+curl -s localhost:8000/api/v1/me -H "Authorization: Bearer $TOKEN"
+curl -s localhost:8000/api/v1/me/dashboard -H "Authorization: Bearer $TOKEN"
 ```
-Interactive documentation: `http://localhost:8000/docs`. OpenAPI JSON: `http://localhost:8000/openapi.json`.
+Interactive docs: `http://localhost:8000/docs`. Without an LLM configured, assistant questions that match a document return `503 llm_unavailable`, and questions that match nothing return the "not found in the approved documents" answer.
 
-### Calling authenticated endpoints
+---
 
-Obtain an access token by signing in with a seeded user through Supabase Auth (the same way the frontend does). **Confirm** the exact sign-in request against the current Supabase Auth documentation; the seed script will also offer a helper that prints a token for a chosen demo user.
-```bash
-TOKEN="<access token>"
-curl -s http://localhost:8000/api/v1/me -H "Authorization: Bearer $TOKEN"
-```
+## 5. Path B: Supabase and real LLMs (**Confirm**)
+
+Not run for real; follow the vendor's current documentation.
+
+1. Create a Supabase project. In `.env` set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `DATABASE_URL`. Confirm in the project settings whether to use the direct or the pooled connection string for your host (the direct host may be IPv6 only). The app already disables prepared statements so it works behind a transaction-mode pooler.
+2. `python scripts/migrate.py`. This creates the tables, enables row-level security everywhere (default deny), and tries to create the private buckets `attachments` and `rag-docs`. If the log says the buckets could not be created in SQL, create two **private** buckets with those names in the Supabase dashboard.
+3. `python scripts/seed.py --reset --auth`. `--auth` creates the demo users in Supabase Auth first (profiles reference `auth.users`, so on Supabase the users must exist before the data). Set `SEED_DEMO_PASSWORD` first. Users are created with fixed ids so the seeded data lines up.
+4. `python scripts/ingest_docs.py` (uploads the PDFs to the `rag-docs` bucket).
+5. Set `AUTH_MODE=supabase`, `STORAGE_BACKEND=supabase`, and the LLM variables. Run one real assistant question and one real email draft per provider before relying on them: the Groq and Gemini request formats are **not verified against the live services**.
+6. To call the API as a demo user, sign in through Supabase Auth exactly as the frontend does and send the access token as `Authorization: Bearer <token>`.
+
+---
+
+## 6. Demo data
+
+`python scripts/seed.py --reset` creates (all synthetic; emails use the reserved `.example` domain):
+
+| Who | Login | Notes |
+|---|---|---|
+| Adviser | `adviser@demo.example` | Has 3 clients. |
+| Second adviser | `adviser2@demo.example` | Has 1 client; used to prove advisers cannot see each other's data. |
+| Client One | `client1@demo.example` | 4 policies, net worth, 3 goals (one shared), a submitted claim, a private draft claim, 2 open requests. |
+| Client Two | `client2@demo.example` | A claim in assessment (claim number `SC-778201`), a consultation request. |
+| Client Three | `client3@demo.example` | A claim in repair for over a week with a hire car (triggers the "stale claim" alert); an expired licence (overdue reminder). |
+| Client Four | `client4@demo.example` | Belongs to the second adviser. |
+
+The seed also creates three simulated emails for the adviser (one from an insurer, one from a client, one newsletter). Dates are relative to today so reminders always have something to show. Ids are derived deterministically from names, but the frontend must never hardcode them.
 
 ---
 
 ## 7. Run the tests
 
-**Planned.**
+**Verified:** 367 tests, about one minute, no internet or Supabase needed (a real PostgreSQL is started automatically by `pgserver`).
 ```bash
-pytest -q
+pytest                       # everything
+pytest tests/test_claims.py  # one area
+python -m pyflakes app tests # lint (pip install pyflakes)
 ```
-Unit tests use fake Supabase and fake LLM providers and need no internet. The tests that matter most for the demo are the authorization suite and the RAG guarantees (see `ARCHITECT.md` §12).
+What they cover: the whole API contract (`test_contract.py` fails if the code and `docs/api.md` disagree), cross-client and cross-adviser isolation, the claim state machine, uploads, reminders, requests, the assistant's grounding guarantees (including prompt-injection and fabricated-citation cases), email flags and drafts, the LLM adapters against mocked HTTP, and the migrations. Tests never read your `.env`.
 
 ---
 
-## 8. Deploy (Render)
-
-**Planned; Confirm every item against Render's current documentation.**
+## 8. Deploy (Render) (**Confirm**)
 
 | Setting | Value |
 |---|---|
 | Service type | Web service |
 | Root directory | `backend` |
 | Build command | `pip install -r requirements.txt` |
-| Start command | `uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
+| Start command | `uvicorn app.main:app --host 0.0.0.0 --port $PORT` (the command itself is **verified** locally; that Render supplies `PORT` needs confirming) |
 | Health check path | `/health` |
-| Python version | Set it to match your local version (3.10+). **Confirm** how Render selects the Python version. |
-| Environment | Every required variable from Section 3, entered in Render's dashboard. Set `ALLOWED_ORIGINS` to the Vercel URL. |
+| Python version | Match your local version (3.10+). Confirm how Render selects it. |
+| Environment | Every required variable from Section 3, set in Render's dashboard, with `AUTH_MODE=supabase` and `STORAGE_BACKEND=supabase`. Set `ALLOWED_ORIGINS` to the Vercel URL. |
 
-Run migrations from your machine against the Supabase database (Section 5) before the first deploy. They are not run at boot.
+Run migrations, seeding and ingestion from your own machine against the Supabase database; they are not run at boot.
 
-**Before every demo:** run `scripts/warm_backend.sh` (planned) so the first request is not slow, then open `/health` and one authenticated page.
+**Before every demo:** `scripts/warm_backend.sh https://<backend-host>` (waits for a sleeping free-tier service to wake), then load one authenticated page and ask the assistant one question.
 
 ---
 
@@ -185,21 +160,26 @@ Run migrations from your machine against the Supabase database (Section 5) befor
 
 | Symptom | Likely cause and fix |
 |---|---|
-| `pip install` puts packages somewhere unexpected | The venv was not active. Run `deactivate`, then Section 2, and check `which python`. |
-| App exits at startup naming a variable | A required variable is missing from `.env`. |
-| Browser shows a CORS error | The frontend origin is not in `ALLOWED_ORIGINS` (must match exactly, including port and scheme). |
-| Every call returns `401 token_invalid` | Token verification is misconfigured (`ARCHITECT.md` §4.2), or the frontend is signed in to a different Supabase project than the backend. |
-| `403 forbidden` right after login | The auth user has no row in `profiles` (not seeded). |
-| Database connection fails from the hosted service only | The connection string points at a host the platform cannot reach. **Confirm** the direct vs pooled host in the Supabase project settings. |
-| Assistant returns `503 llm_unavailable` | Both providers failed or were rate limited. Check keys and model names; wait for `retry_after_seconds`. |
-| First request after idle takes long | Free-tier cold start. Use the warm-up script. |
+| Packages installed somewhere unexpected | The venv was not active. `deactivate`, redo Section 2, check `which python`. |
+| App exits at startup naming variables | Those variables are missing from `.env`. |
+| `uvicorn: Attribute "app" not found` | Run it from the `backend/` folder so that `app.main` is importable. |
+| CORS error in the browser | The frontend origin is not in `ALLOWED_ORIGINS` (must match scheme, host and port exactly). |
+| Every call returns `401 token_invalid` | With `AUTH_MODE=supabase`: the frontend is signed in to a different project than the backend, or the token verification setup needs checking. With `local_hs256`: the token was signed with a different secret. |
+| `403 forbidden` right after login | The auth user has no `profiles` row: seed with `--auth` (Supabase) or check the user id. |
+| `seed.py` fails with a foreign-key error on Supabase | Use `--auth` so the users exist before the data. |
+| Database connection fails from the hosted service only | The connection string points at a host the platform cannot reach (direct vs pooled). |
+| Assistant returns `503 llm_unavailable` | No LLM is configured, or both providers failed or were rate limited. Check keys and model names; wait `retry_after_seconds`. |
+| Assistant says "I couldn't find this in the approved documents" | Working as designed when nothing relevant is indexed. Run `scripts/ingest_docs.py`; try a question that uses words from the documents. |
+| First request after idle is slow | Free-tier cold start. Use the warm-up script. |
+| Uploads return `415` | The file's real content does not match its declared type, or the type is not allowed for that `kind`. Use JPEG, PNG, WebP or PDF (audio for voice notes). |
 
 ---
 
 ## 10. Working rules for anyone changing the backend
 
 1. Create and activate the virtual environment before installing anything.
-2. Update [`api.md`](api.md) in the same change as any route or shape change, and add a changelog line. The frontend team builds against it.
-3. Never commit secrets or `.env` files. Never log tokens, bodies, bank details, email text or document text.
-4. Verify a library or external API in the venv or its official documentation before designing around it, and mark anything unverified as such.
+2. Change [`api.md`](api.md) in the same change as any route or shape change and add a changelog line. `pytest` fails if the index and the code drift.
+3. Never commit secrets or `.env` files. Never log tokens, request bodies, bank details, email text or document text.
+4. Verify a library or external API in the venv or its official documentation before relying on it, and mark anything unverified as such.
 5. Keep synthetic data labelled as synthetic.
+6. Run `pytest` before pushing.

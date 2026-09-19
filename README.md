@@ -2,7 +2,20 @@
 
 **A two-sided client and adviser platform for Royal Square Financial. Faster claims, clearer goals, automated reminders, and a document assistant that cites its sources.**
 
-> Built for **AfriHack 2026** (Cape Town). Status: **in development, hackathon prototype**. All data in this repository is synthetic. Nothing here connects to Royal Square's production systems.
+> Built for **AfriHack 2026** (Cape Town). Status: **in development, hackathon prototype**. Design documents and the API contract are written; the backend code is not built yet. All data in this repository is synthetic. Nothing here connects to Royal Square's production systems.
+
+## Documentation
+
+| Document | What it is |
+|---|---|
+| [docs/Royal_Square_Financial_PRD.pdf](docs/Royal_Square_Financial_PRD.pdf) | The client's requirements (source of truth) |
+| [docs/PRD.md](docs/PRD.md) | Markdown copy of the PDF plus team notes |
+| [docs/api.md](docs/api.md) | **API contract.** Share with the frontend team |
+| [docs/ARCHITECT.md](docs/ARCHITECT.md) | Backend architecture, decisions and build order |
+| [docs/Quickstart.md](docs/Quickstart.md) | Backend setup, run, test and deploy |
+| [docs/TECHSTACK.md](docs/TECHSTACK.md) | Stack choices and their verification status |
+| [docs/DESIGN.md](docs/DESIGN.md) | Screens, flows and product design principles |
+| [AGENTS.md](AGENTS.md) | Roles, AI agents and working rules |
 
 ---
 
@@ -55,7 +68,7 @@ Key decisions:
 
 - All data access goes through the API. Roles come from a server-side profile, never from client-editable fields.
 - Row-level security is enabled on all tables (default deny) as defence in depth.
-- Retrieval uses pgvector inside Supabase, so no state lives on the API server's disk.
+- Retrieval runs inside Supabase Postgres, so no state lives on the API server's disk. It starts with full-text search; pgvector is added once an embedding model is chosen and verified (see [docs/ARCHITECT.md](docs/ARCHITECT.md) §8).
 - The LLM sits behind a provider adapter so the model or vendor can change without touching business logic.
 - Emails and documents are treated as untrusted input. The assistant drafts; a human sends.
 - Reminders are computed on read (plus a manual "run check" endpoint), not by an in-process scheduler.
@@ -72,74 +85,51 @@ Key decisions:
 
 ## Repository structure
 
+Folders marked *(planned)* do not exist yet.
+
 ```
-royal-square-platform/
+<repo root>/
 ├── frontend/          # React app (client app + adviser portal, role-based routes)
 ├── backend/           # FastAPI service (routers, services, RAG, LLM and email adapters)
-├── supabase/          # migrations: schema, RLS policies, pgvector
-├── data/rag-docs/     # approved documents for retrieval (synthetic ones are labelled)
-├── docs/              # PRD, architecture notes, demo script, decision log
-├── scripts/           # helper scripts (e.g. keep-warm for the hosted backend)
+├── supabase/          # migrations: schema, RLS policies, indexes
+├── data/rag-docs/     # (planned) approved documents for retrieval (synthetic ones are labelled)
+├── docs/              # PRD, API contract, architecture, quickstart, design, tech stack
+├── scripts/           # (planned) helper scripts, e.g. warm_backend.sh for the hosted backend
 ├── AGENTS.md
 ├── CLAUDE.md
 └── README.md
 ```
 
+Inside `backend/` the planned layout is described in [docs/ARCHITECT.md](docs/ARCHITECT.md) §3.
+
 ## Getting started
+
+The full backend procedure, with a note on what has and has not been verified, is in [docs/Quickstart.md](docs/Quickstart.md). Summary, in order:
 
 ### Prerequisites
 
-- Node.js (current LTS) and npm
-- Python 3.11 or newer
+- Node.js (current LTS) and npm (frontend only)
+- Python 3.10 or newer (verified: 3.10.12 on the development machine)
 - A Supabase project
 - An API key for Groq and/or Gemini
 
-### 1. Clone and configure
+### Backend (planned; the scaffold does not exist yet)
 
-```bash
-git clone <repo-url>
-cd royal-square-platform
-cp backend/.env.example backend/.env
-cp frontend/.env.example frontend/.env
-```
+1. **Create and activate the virtual environment first**, before installing anything:
+   ```bash
+   cd backend
+   python3 -m venv .venv
+   source .venv/bin/activate        # Windows: .venv\Scripts\activate
+   ```
+2. Create the environment file: `cp .env.example .env`, then fill it in. Never commit it.
+3. `pip install -r requirements.txt`
+4. Apply the migrations and load the demo data: `python scripts/migrate.py`, then `python scripts/seed.py`
+5. Index the assistant's documents: `python scripts/ingest_docs.py`
+6. `uvicorn app.main:app --reload`. Interactive API docs are served at `/docs`.
 
-Fill in the values (see [Environment variables](#environment-variables)). Never commit `.env` files.
+### Frontend
 
-### 2. Database
-
-Apply the migrations in `supabase/migrations/` to your Supabase project, then load the demo data:
-
-```bash
-cd backend
-python scripts/seed.py
-```
-
-### 3. Run the backend
-
-```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload
-```
-
-The interactive API docs are served at `/docs` on the backend's local address.
-
-### 4. Index the documents for the assistant
-
-```bash
-cd backend
-python scripts/ingest_docs.py
-```
-
-### 5. Run the frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
+Owned by the frontend team. Copy `frontend/.env.example` to `frontend/.env` (when it exists), then `npm install` and `npm run dev`. The frontend integrates through [docs/api.md](docs/api.md).
 
 ## Environment variables
 
@@ -149,12 +139,16 @@ npm run dev
 |---|---|
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-side key. Never expose to the browser |
-| `LLM_PROVIDER` | `groq` or `gemini` |
+| `DATABASE_URL` | Postgres connection string from the Supabase project |
+| `LLM_PROVIDER` / `LLM_FALLBACK_PROVIDER` | `groq` or `gemini` (primary and fallback) |
 | `GROQ_API_KEY` / `GEMINI_API_KEY` | Provider keys |
-| `EMAIL_PROVIDER` | `mock` (default) or `gmail` |
+| `GROQ_MODEL` / `GEMINI_MODEL` | Model names, set from each provider's current documentation |
+| `EMAIL_PROVIDER` | `mock` (default) or `gmail` (not built) |
 | `ALLOWED_ORIGINS` | Comma-separated frontend origins for CORS |
 
-JWT verification settings depend on the Supabase project's current signing setup. Follow the current Supabase documentation. `[TODO: document the chosen method]`
+The complete list (upload limits, signed URL lifetime, rate limit, bucket names) is in [docs/Quickstart.md](docs/Quickstart.md) §3.
+
+JWT verification depends on the Supabase project's current signing setup and has not been decided. The options and the recommendation are in [docs/ARCHITECT.md](docs/ARCHITECT.md) §4.2. `[TODO: record the chosen method once verified against current Supabase documentation]`
 
 **Frontend (`frontend/.env`)**
 
@@ -170,7 +164,7 @@ JWT verification settings depend on the Supabase project's current signing setup
 - **Backend:** Render web service, with the root directory set to `backend`.
 - **Database and storage:** Supabase.
 
-Free hosting tiers can put the backend to sleep when idle, which delays the first request. Use `scripts/warm_backend.sh` before demos.
+Free hosting tiers can put the backend to sleep when idle, which delays the first request. Use `scripts/warm_backend.sh` (planned) before demos.
 
 ## Security and data notes
 

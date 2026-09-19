@@ -117,13 +117,15 @@ class FtsRetriever:
         return [Chunk(**{**r, "rank": float(r["rank"]), "score": float(r["score"])}) for r in rows]
 
 
-_SENT = re.compile(r"(?<=[.!?])\s+")
+_SENT = re.compile(r"(?<=[.!?])\s+|\n+")  # sentence ends and line breaks (a heading is its own segment)
 
 
 def best_quote(content: str, question: str, max_len: int = 300) -> str:
     """The stored sentence that best overlaps the question. Always copied from the source, never model-written."""
     kws = keywords(question)
-    sentences = [s.strip() for s in _SENT.split(content) if s.strip()] or [content.strip()]
+    segments = [s.strip() for s in _SENT.split(content) if s.strip()] or [content.strip()]
+    # A heading ("Section 3: Notifying a claim") has no closing punctuation: it is never the quote unless nothing else exists.
+    sentences = [s for s in segments if s[-1] in ".!?"] or segments
     # Match on a 5-letter stem prefix so "notification" also finds "notify"; ties keep the earliest sentence.
     best = max(sentences, key=lambda s: sum(1 for w in kws if w[:5] in s.lower()))
     if len(best) <= max_len:

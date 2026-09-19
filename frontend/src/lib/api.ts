@@ -1,256 +1,244 @@
-import { getAccessToken, supabase, signOut } from "./supabase";
-import { mockHandlers } from "./mock";
+import { getAccessToken, refreshSession, signOut } from "./supabase";
+import { mockRequest } from "./mock";
+import { ApiError } from "./errors";
+import type { Attachment, AttachmentKind } from "./types";
 
-export class ApiError extends Error {
-  public code: string;
-  public details?: any[];
-  public requestId: string;
-  public retryAfterSeconds?: number | null;
-  public status: number;
+// Pages import the error class from here (`import { ApiError } from "@/lib/api"`); it lives in ./errors.
+export { ApiError } from "./errors";
 
-  constructor(status: number, errorBody: any) {
-    super(errorBody?.error?.message || "Unknown API Error");
-    this.name = "ApiError";
-    this.status = status;
-    this.code = errorBody?.error?.code || "unknown";
-    this.details = errorBody?.error?.details;
-    this.requestId = errorBody?.error?.request_id || "unknown";
-    this.retryAfterSeconds = errorBody?.error?.retry_after_seconds;
-  }
-}
-
+/** True when there is no real backend (VITE_API_URL empty or "mock"): every call is answered by lib/mock.ts. */
 export function isMock(): boolean {
   const url = import.meta.env.VITE_API_URL;
   return !url || url === "mock";
 }
 
+const REQUEST_TIMEOUT_MS = 60_000; // first request after idle can be slow on free hosting (docs/api.md 7.5)
+
+/** X-Request-ID: [A-Za-z0-9-], at most 64 chars. crypto.randomUUID is missing on non-secure origins, so fall back. */
 function generateRequestId(): string {
-  return crypto.randomUUID();
+  const c = globalThis.crypto;
+  if (c && typeof c.randomUUID === "function") return c.randomUUID();
+  const bytes = new Uint8Array(16);
+  if (c && typeof c.getRandomValues === "function") c.getRandomValues(bytes);
+  else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-async function fetchWithRetry(
-  url: string,
-  options: RequestInit,
-  isRetry = false,
-): Promise<Response> {
-  let token = await getAccessToken();
-  const headers = new Headers(options.headers || {});
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
+function getUrl(path: string): string {
+  // Accept VITE_API_URL with or without a trailing slash or the /api/v1 suffix.
+  const base = String(import.meta.env.VITE_API_URL).replace(/\/+$/, "").replace(/\/api\/v1$/, "");
+  return `${base}/api/v1${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+// ---------------------------------------------------------------------------
+// Query strings
+// ---------------------------------------------------------------------------
+export type QueryValue = string | number | boolean | null | undefined;
+export type QueryParams = Record<string, QueryValue | QueryValue[]>;
+
+/**
+ * Build "?a=1&b=2" from an object. null / undefined / "" are skipped, arrays repeat the key
+ * (`{ status: ["registered", "assessment"] }` -> `status=registered&status=assessment`), values are encoded.
+ */
+export function buildQuery(params?: QueryParams): string {
+  if (!params) return "";
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    for (const v of Array.isArray(value) ? value : [value]) {
+      if (v !== null && v !== undefined && v !== "") search.append(key, String(v));
+    }
   }
+  const text = search.toString();
+  return text ? `?${text}` : "";
+}
+
+function withQuery(path: string, params?: QueryParams): string {
+  const query = buildQuery(params);
+  if (!query) return path;
+  return path.includes("?") ? `${path}&${query.slice(1)}` : `${path}${query}`;
+}
+
+// ---------------------------------------------------------------------------
+// Transport
+// ---------------------------------------------------------------------------
+function networkError(cause: unknown, timedOut: boolean): ApiError {
+  if (timedOut || (cause instanceof DOMException && cause.name === "AbortError")) {
+    return new ApiError(
+      0,
+      { error: { code: "timeout", message: "The server took too long to respond. Please try again." } },
+    );
+  }
+  return new ApiError(
+    0,
+    { error: { code: "network_error", message: "We could not reach the server. Check your internet connection and try again." } },
+  );
+}
+
+async function peekErrorCode(response: Response): Promise<string> {
+  try {
+    const body: unknown = await response.clone().json();
+    const code = (body as { error?: { code?: unknown } } | null)?.error?.code;
+    return typeof code === "string" ? code : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * One HTTP call with auth, X-Request-ID, a 60 s timeout and the 401 rules from docs/api.md 7.1:
+ *  - token_expired            -> refresh the Supabase session and retry once
+ *  - token_invalid            -> sign out
+ *  - any other 401 with a token -> refresh and retry once; a second 401 signs out
+ *  - 401 with no token (never signed in) -> just an error, nothing to sign out of
+ *  - 403 is NEVER a reason to sign out (it means "signed in, but not allowed"), so it cannot cause a loop.
+ */
+async function send(url: string, init: RequestInit, retried = false): Promise<Response> {
+  let token: string | null = null;
+  try {
+    token = await getAccessToken();
+  } catch {
+    token = null; // unreadable session: send the call without a token and let the server answer 401
+  }
+
+  const headers = new Headers(init.headers);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
   headers.set("X-Request-ID", generateRequestId());
 
-  if (!(options.body instanceof FormData) && !headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json; charset=utf-8");
-  }
-
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 60000);
-
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let response: Response;
   try {
-    const response = await fetch(url, {
-      ...options,
-      headers,
-      signal: controller.signal,
-    });
-
-    if (response.status === 401 && !isRetry) {
-      // Check if it's token_expired
-      let errorBody;
-      try {
-        errorBody = await response.clone().json();
-      } catch (e) {}
-
-      if (errorBody?.error?.code === "token_expired") {
-        const { error: refreshError } = await supabase.auth.refreshSession();
-        if (!refreshError) {
-          return fetchWithRetry(url, options, true);
-        }
-      } else if (errorBody?.error?.code === "token_invalid") {
-        await signOut();
-      } else {
-        await signOut();
-      }
-    } else if (response.status === 401 && isRetry) {
-      await signOut();
-    }
-
-    return response;
+    response = await fetch(url, { ...init, headers, signal: controller.signal });
+  } catch (cause) {
+    throw networkError(cause, controller.signal.aborted);
   } finally {
     clearTimeout(timeoutId);
   }
-}
 
-async function handleResponse<T>(response: Response): Promise<T> {
-  if (response.status === 204) return {} as T;
-  if (!response.ok) {
-    let errorBody;
-    try {
-      errorBody = await response.json();
-    } catch (e) {
-      errorBody = {
-        error: {
-          message: response.statusText,
-          request_id: response.headers.get("X-Request-ID"),
-        },
-      };
+  if (response.status === 401 && token) {
+    const code = await peekErrorCode(response);
+    if (code === "token_invalid") {
+      await signOut();
+    } else if (!retried && (await refreshSession())) {
+      return send(url, init, true);
+    } else {
+      await signOut();
     }
-    throw new ApiError(response.status, errorBody);
   }
-  return response.json() as Promise<T>;
+  return response;
 }
 
-async function mockFetch<T>(path: string, options: RequestInit): Promise<T> {
-  await new Promise((resolve) => setTimeout(resolve, 200)); // 200ms delay
-
-  // Clean path for exact match
-  const base = path.split("?")[0];
-
-  if (mockHandlers[base]) {
-    return mockHandlers[base] as T;
+function statusFallback(status: number): { code: string; message: string } {
+  if (status === 502 || status === 503 || status === 504) {
+    return { code: "upstream_error", message: "The service is temporarily unavailable. Please try again in a moment." };
   }
+  if (status >= 500) return { code: "internal_error", message: "Something went wrong on our side. Please try again." };
+  if (status === 401) return { code: "unauthenticated", message: "Please sign in to continue." };
+  if (status === 403) return { code: "forbidden", message: "You do not have access to this." };
+  if (status === 404) return { code: "not_found", message: "That was not found." };
+  return { code: "bad_request", message: `The request could not be completed (HTTP ${status}).` };
+}
 
-  // Fallback for paths with IDs e.g., /claims/123 -> returns the mock claim
-  if (
-    base.startsWith("/claims/") &&
-    base !== "/claims/checklist" &&
-    base !== "/claims/pipeline"
-  ) {
-    return {
-      id: base.split("/")[2],
-      reference: "CLM-MOCK",
-      status: "assessment",
-      status_label: "Assessment",
-      client: {
-        id: "0b7e3a52-1c4e-4c39-9e44-2a4f6e1b8a01",
-        full_name: "Thabo Mokoena",
-      },
-      insurer: null,
-      claim_number: null,
-      incident_occurred_at: null,
-      incident_location_text: null,
-      hire_car_status: "not_required",
-      days_in_status: 0,
-      submitted_at: null,
-      updated_at: new Date().toISOString(),
-      policy_id: null,
-      incident: {
-        occurred_at: null,
-        location_text: null,
-        location_lat: null,
-        location_lng: null,
-        description: null,
-      },
-      police: {
-        reported: null,
-        case_number: null,
-        station: null,
-        reported_at: null,
-        report_deadline_at: null,
-        deadline_status: "not_applicable",
-      },
-      driver: {
-        is_policyholder: null,
-        full_name: null,
-        relationship_to_policyholder: null,
-      },
-      vehicle_use: null,
-      witnesses: [],
-      third_parties: [],
-      insurer_details: {
-        claim_number: null,
-        handler_name: null,
-        handler_email: null,
-        handler_phone: null,
-      },
-      repair: {
-        repairer_name: null,
-        repairer_phone: null,
-        quote_amount_cents: null,
-        authorised_amount_cents: null,
-        drop_off_date: null,
-        estimated_completion_date: null,
-        completed_at: null,
-      },
-      hire_car: {
-        status: "not_required",
-        provider: null,
-        delivery_date: null,
-        return_date: null,
-      },
-      review: null,
-      missing_fields: [],
-      allowed_transitions: [],
-      attachments: [],
-      timeline: [],
-      created_at: new Date().toISOString(),
-      closed_at: null,
-    } as unknown as T;
+async function readBody<T>(response: Response): Promise<T> {
+  if (response.status === 204 || response.status === 205) return undefined as T;
+  const text = await response.text().catch(() => "");
+
+  if (!response.ok) {
+    let parsed: unknown = null;
+    try {
+      parsed = text ? JSON.parse(text) : null;
+    } catch {
+      parsed = null; // e.g. an HTML error page from a proxy
+    }
+    const hasEnvelope = typeof parsed === "object" && parsed !== null && "error" in parsed;
+    const fallback = statusFallback(response.status);
+    const headerRetry = Number(response.headers.get("Retry-After"));
+    const error = ApiError.fromResponse(
+      response.status,
+      hasEnvelope ? parsed : { error: { ...fallback } },
+      response.headers.get("X-Request-ID") ?? "",
+      Number.isFinite(headerRetry) && headerRetry > 0 ? headerRetry : null,
+    );
+    throw error;
   }
 
-  throw new ApiError(404, {
-    error: { code: "not_found", message: "Mock not found", request_id: "mock" },
-  });
+  if (!text) return undefined as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new ApiError(response.status, {
+      error: {
+        code: "bad_response",
+        message: "The server sent a reply we could not read. Please try again.",
+        request_id: response.headers.get("X-Request-ID") ?? "",
+      },
+    });
+  }
 }
 
-function getUrl(path: string) {
-  const baseUrl = import.meta.env.VITE_API_URL;
-  return `${baseUrl}/api/v1${path}`;
+async function request<T>(method: string, path: string, body?: unknown, form?: FormData): Promise<T> {
+  if (isMock()) return mockRequest<T>(method, path, form ?? body);
+
+  const init: RequestInit = { method };
+  if (form) {
+    // FormData: the browser sets the multipart Content-Type with its boundary. Never set it by hand.
+    init.body = form;
+  } else if (body !== undefined) {
+    init.body = JSON.stringify(body);
+    init.headers = { "Content-Type": "application/json; charset=utf-8" };
+  }
+  const response = await send(getUrl(path), init);
+  return readBody<T>(response);
 }
 
-export async function get<T>(path: string): Promise<T> {
-  if (isMock()) return mockFetch<T>(path, { method: "GET" });
-  const res = await fetchWithRetry(getUrl(path), { method: "GET" });
-  return handleResponse<T>(res);
+// ---------------------------------------------------------------------------
+// Public API. Paths are relative to /api/v1 (e.g. "/claims"); this module adds the prefix.
+// ---------------------------------------------------------------------------
+
+/** GET. List endpoints resolve to a Page<T> ({ items, total, limit, offset }); pass query values as `params`. */
+export async function get<T>(path: string, params?: QueryParams): Promise<T> {
+  return request<T>("GET", withQuery(path, params));
 }
 
-export async function post<T>(path: string, body?: any): Promise<T> {
-  if (isMock())
-    return mockFetch<T>(path, { method: "POST", body: JSON.stringify(body) });
-  const res = await fetchWithRetry(getUrl(path), {
-    method: "POST",
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  return handleResponse<T>(res);
+export async function post<T>(path: string, body?: unknown): Promise<T> {
+  return request<T>("POST", path, body);
 }
 
-export async function patch<T>(path: string, body: any): Promise<T> {
-  if (isMock())
-    return mockFetch<T>(path, { method: "PATCH", body: JSON.stringify(body) });
-  const res = await fetchWithRetry(getUrl(path), {
-    method: "PATCH",
-    body: JSON.stringify(body),
-  });
-  return handleResponse<T>(res);
+export async function patch<T>(path: string, body: unknown): Promise<T> {
+  return request<T>("PATCH", path, body);
 }
 
-export async function put<T>(path: string, body: any): Promise<T> {
-  if (isMock())
-    return mockFetch<T>(path, { method: "PUT", body: JSON.stringify(body) });
-  const res = await fetchWithRetry(getUrl(path), {
-    method: "PUT",
-    body: JSON.stringify(body),
-  });
-  return handleResponse<T>(res);
+export async function put<T>(path: string, body: unknown): Promise<T> {
+  return request<T>("PUT", path, body);
 }
 
+/** DELETE. The API answers 204 with an empty body. */
 export async function del(path: string): Promise<void> {
-  if (isMock()) return;
-  const res = await fetchWithRetry(getUrl(path), { method: "DELETE" });
-  await handleResponse(res);
+  await request<void>("DELETE", path);
 }
 
-export async function postForm<T>(
+/** POST multipart/form-data. Do not set a Content-Type; see uploadAttachment for the common case. */
+export async function postForm<T>(path: string, formData: FormData): Promise<T> {
+  return request<T>("POST", path, undefined, formData);
+}
+
+/**
+ * Upload ONE file to `/claims/{id}/attachments` or `/requests/{id}/attachments`.
+ * The API needs the parts `file`, `kind` (an AttachmentKind) and optionally `label` (max 120 chars).
+ * Errors: 413 payload_too_large, 415 unsupported_media_type, 422 validation_error (attachment count limit).
+ */
+export async function uploadAttachment(
   path: string,
-  formData: FormData,
-): Promise<T> {
-  if (isMock()) return mockFetch<T>(path, { method: "POST", body: formData });
-  const res = await fetchWithRetry(getUrl(path), {
-    method: "POST",
-    body: formData,
-  });
-  return handleResponse<T>(res);
+  file: File | Blob,
+  options: { kind: AttachmentKind; label?: string | null; filename?: string },
+): Promise<Attachment> {
+  const form = new FormData();
+  const name = options.filename ?? (file instanceof File ? file.name : "upload");
+  form.append("file", file, name);
+  form.append("kind", options.kind);
+  if (options.label) form.append("label", options.label);
+  return postForm<Attachment>(path, form);
 }
 
 // Convenience namespace — pages may import { api } or the named functions
-export const api = { get, post, patch, put, del, postForm };
+export const api = { get, post, patch, put, del, postForm, upload: uploadAttachment };

@@ -140,3 +140,73 @@ def test_the_app_refuses_to_start_without_required_settings():
 def test_gmail_is_refused():
     with pytest.raises(ValueError, match="gmail"):
         Settings(_env_file=None, email_provider="gmail")
+
+
+# ------------------------------------------------------------------------------------ transient retries
+def _router(*providers):
+    delays = []
+    return LLMRouter(list(providers), retry_delay_s=0.5, sleep=delays.append), delays
+
+
+def test_transient_errors_are_retried_once_on_the_same_provider():
+    p = FakeProvider("gemini", "m", [LLMError("unavailable", transient=True), "recovered"])
+    router, delays = _router(p)
+    assert router.generate(MSGS).text == "recovered"
+    assert len(p.calls) == 2 and delays == [0.5]
+
+
+def test_a_persistent_transient_error_falls_back_after_one_retry():
+    a = FakeProvider("groq", "a", [LLMError("unavailable", transient=True)])
+    b = FakeProvider("gemini", "b", ["from backup"])
+    router, delays = _router(a, b)
+    res = router.generate(MSGS)
+    assert res.provider == "gemini" and len(a.calls) == 2 and len(b.calls) == 1 and delays == [0.5]
+
+
+def test_configuration_errors_and_rate_limits_are_not_retried():
+    for err in (LLMError("unavailable"), LLMError("rate_limited", retry_after=3), LLMError("bad_response")):
+        a = FakeProvider("groq", "a", [err])
+        router, delays = _router(a, FakeProvider("gemini", "b", ["ok"]))
+        assert router.generate(MSGS).provider == "gemini"
+        assert len(a.calls) == 1 and delays == [], err.kind
+
+
+def test_providers_mark_only_server_and_network_failures_as_transient():
+    def raises(status):
+        p = GroqProvider("K", "m", client(lambda r: httpx.Response(status, json={})))
+        with pytest.raises(LLMError) as e:
+            p.generate(MSGS, json_mode=True, timeout_s=5)
+        return e.value.transient
+    assert raises(503) is True and raises(500) is True
+    assert raises(401) is False and raises(404) is False and raises(429) is False
+
+    def boom(req):
+        raise httpx.ReadTimeout("slow")
+    with pytest.raises(LLMError) as e:
+        GeminiProvider("K", "m", client(boom)).generate(MSGS, json_mode=True, timeout_s=1)
+    assert e.value.transient is True
+
+
+# ---------------------------------------------------------------------------------- obviously-wrong values
+def test_config_problems_catch_the_common_mistakes():
+    from app.core.config import validate_settings
+    bad = Settings(_env_file=None, database_url="https://abc.supabase.co/rest/v1/", auth_mode="local_hs256", supabase_jwt_secret="s" * 40,
+                   storage_backend="supabase", supabase_url="https://abc.supabase.co", supabase_service_role_key="sb_publishable_abc",
+                   llm_provider="groq", groq_api_key="xai-123", groq_model="m")
+    probs = bad.config_problems()
+    assert len(probs) == 3
+    assert "REST API address" in probs[0] and "publishable" in probs[1] and "xAI" in probs[2]
+    with pytest.raises(RuntimeError) as e:
+        validate_settings(bad)
+    assert "DATABASE_URL" in str(e.value) and "publishable" in str(e.value)
+    assert "sb_publishable_abc" not in str(e.value), "the message must never echo a key"
+
+
+def test_config_problems_are_quiet_for_valid_values():
+    ok = Settings(_env_file=None, database_url="postgresql://u:p@host:6543/postgres", auth_mode="supabase", supabase_url="https://a.supabase.co",
+                  supabase_service_role_key="sb_secret_abc", llm_provider="gemini", gemini_api_key="k", gemini_model="m",
+                  groq_api_key="xai-not-used-because-groq-is-not-selected")
+    assert ok.config_problems() == []
+    legacy = Settings(_env_file=None, database_url="postgres://u:p@h/db", auth_mode="supabase", supabase_url="https://a.supabase.co",
+                      supabase_service_role_key="eyJhbGciOi.legacy.jwt")
+    assert legacy.config_problems() == []

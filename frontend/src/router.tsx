@@ -1,8 +1,10 @@
 import React, { Suspense } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
-import { useAuth } from "./context/AuthContext";
 import ClientLayout from "./layouts/ClientLayout";
 import AdvisorLayout from "./layouts/AdvisorLayout";
+import { ProtectedRoute } from "./components/auth/ProtectedRoute";
+import { RootRedirect } from "./components/auth/RootRedirect";
+import { PageLoader, PageTitle } from "./components/ui";
 
 // ── Shared ──────────────────────────────────────────────────────────────────
 const SignIn = React.lazy(() => import("./pages/auth/SignIn"));
@@ -35,83 +37,17 @@ const AdvisorReminders = React.lazy(() => import("./pages/advisor/Reminders"));
 const Assistant = React.lazy(() => import("./pages/advisor/Assistant"));
 const Email = React.lazy(() => import("./pages/advisor/Email"));
 
-// ── Loading fallback ─────────────────────────────────────────────────────────
-function PageLoader() {
+// Dev-only kitchen sink for the shared UI kit; import.meta.env.DEV is false in production builds.
+const UiPreview = import.meta.env.DEV ? React.lazy(() => import("./components/dev/UiPreview")) : null;
+
+/** Sets a sensible browser-tab title for the route; a page's own <PageTitle> (rendered deeper) refines it. */
+function Titled({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="flex h-screen items-center justify-center">
-      <div className="h-8 w-8 animate-spin rounded-full border-4 border-charcoal-200 border-t-brand-500" />
-    </div>
+    <>
+      <PageTitle title={title} />
+      {children}
+    </>
   );
-}
-
-// ── Route guards ─────────────────────────────────────────────────────────────
-function RequireAuth({
-  role,
-  children,
-}: {
-  role: "client" | "advisor";
-  children: React.ReactNode;
-}) {
-  const { session, profile, loading } = useAuth();
-  if (loading) return <PageLoader />;
-  if (!session || !profile) return <Navigate to="/sign-in" replace />;
-  if (profile.role !== role) return <Navigate to="/not-found" replace />;
-  return <>{children}</>;
-}
-
-function ClientRoutes() {
-  return (
-    <RequireAuth role="client">
-      <ClientLayout>
-        <Suspense fallback={<PageLoader />}>
-          <Routes>
-            <Route index element={<ClientDashboard />} />
-            <Route path="policies" element={<ClientPolicies />} />
-            <Route path="goals" element={<ClientGoals />} />
-            <Route path="reminders" element={<ClientReminders />} />
-            <Route path="claims/report" element={<AccidentChecklist />} />
-            <Route path="claims/new" element={<RegisterClaim />} />
-            <Route path="claims/:id" element={<ClaimTracking />} />
-            <Route path="requests" element={<ClientRequests />} />
-            <Route path="profile" element={<ClientProfile />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </Suspense>
-      </ClientLayout>
-    </RequireAuth>
-  );
-}
-
-function AdvisorRoutes() {
-  return (
-    <RequireAuth role="advisor">
-      <AdvisorLayout>
-        <Suspense fallback={<PageLoader />}>
-          <Routes>
-            <Route index element={<AdvisorDashboard />} />
-            <Route path="clients" element={<AdvisorClients />} />
-            <Route path="clients/:clientId" element={<ClientDetail />} />
-            <Route path="claims" element={<ClaimsPipeline />} />
-            <Route path="claims/:claimId" element={<ClaimDetail />} />
-            <Route path="requests" element={<AdvisorRequests />} />
-            <Route path="reminders" element={<AdvisorReminders />} />
-            <Route path="assistant" element={<Assistant />} />
-            <Route path="email" element={<Email />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </Suspense>
-      </AdvisorLayout>
-    </RequireAuth>
-  );
-}
-
-// ── Root redirect ─────────────────────────────────────────────────────────────
-function RootRedirect() {
-  const { session, profile, loading } = useAuth();
-  if (loading) return <PageLoader />;
-  if (!session || !profile) return <Navigate to="/sign-in" replace />;
-  if (profile.role === "client") return <Navigate to="/dashboard" replace />;
-  return <Navigate to="/advisor" replace />; // Fix: redirect to /advisor which matches AdvisorRoutes index
 }
 
 // ── App router ────────────────────────────────────────────────────────────────
@@ -122,21 +58,43 @@ export function Router() {
         <Route path="/sign-in" element={<SignIn />} />
         <Route path="/not-found" element={<NotFound />} />
         <Route path="/error" element={<ServerError />} />
+        {UiPreview && <Route path="/__ui" element={<UiPreview />} />}
 
-        {/* Client app */}
-        <Route path="/dashboard/*" element={<ClientRoutes />} />
-        <Route path="/policies/*" element={<ClientRoutes />} />
-        <Route path="/goals/*" element={<ClientRoutes />} />
-        <Route path="/reminders/*" element={<ClientRoutes />} />
-        <Route path="/claims/*" element={<ClientRoutes />} />
-        <Route path="/requests/*" element={<ClientRoutes />} />
-        <Route path="/profile/*" element={<ClientRoutes />} />
-
-        {/* Advisor portal */}
-        <Route path="/advisor/*" element={<AdvisorRoutes />} />
-
-        {/* Root */}
+        {/* "/" sends each role to its own home (or shows the account error screen) */}
         <Route path="/" element={<RootRedirect />} />
+
+        {/* Client app: one guard + one layout, pages render in the layout's <Outlet /> */}
+        <Route element={<ProtectedRoute role="client" />}>
+          <Route element={<ClientLayout />}>
+            <Route path="/dashboard" element={<Titled title="Dashboard"><ClientDashboard /></Titled>} />
+            <Route path="/policies" element={<Titled title="Policies"><ClientPolicies /></Titled>} />
+            <Route path="/goals" element={<Titled title="Goals"><ClientGoals /></Titled>} />
+            <Route path="/reminders" element={<Titled title="Reminders"><ClientReminders /></Titled>} />
+            {/* There is no claims list page: "Claims" opens the accident checklist, where a claim can be started */}
+            <Route path="/claims" element={<Navigate to="/claims/report" replace />} />
+            <Route path="/claims/report" element={<Titled title="Report an accident"><AccidentChecklist /></Titled>} />
+            <Route path="/claims/new" element={<Titled title="Register a claim"><RegisterClaim /></Titled>} />
+            <Route path="/claims/:id" element={<Titled title="Claim"><ClaimTracking /></Titled>} />
+            <Route path="/requests" element={<Titled title="Requests"><ClientRequests /></Titled>} />
+            <Route path="/profile" element={<Titled title="My profile"><ClientProfile /></Titled>} />
+          </Route>
+        </Route>
+
+        {/* Adviser portal */}
+        <Route path="/advisor" element={<ProtectedRoute role="advisor" />}>
+          <Route element={<AdvisorLayout />}>
+            <Route index element={<Titled title="Adviser dashboard"><AdvisorDashboard /></Titled>} />
+            <Route path="dashboard" element={<Navigate to="/advisor" replace />} />
+            <Route path="clients" element={<Titled title="Clients"><AdvisorClients /></Titled>} />
+            <Route path="clients/:clientId" element={<Titled title="Client"><ClientDetail /></Titled>} />
+            <Route path="claims" element={<Titled title="Claims pipeline"><ClaimsPipeline /></Titled>} />
+            <Route path="claims/:claimId" element={<Titled title="Claim"><ClaimDetail /></Titled>} />
+            <Route path="requests" element={<Titled title="Requests"><AdvisorRequests /></Titled>} />
+            <Route path="reminders" element={<Titled title="Reminders"><AdvisorReminders /></Titled>} />
+            <Route path="assistant" element={<Titled title="Assistant"><Assistant /></Titled>} />
+            <Route path="email" element={<Titled title="Email"><Email /></Titled>} />
+          </Route>
+        </Route>
 
         {/* Catch all */}
         <Route path="*" element={<NotFound />} />

@@ -2,7 +2,7 @@
 
 How to set up, run, test and deploy the Royal Square backend. Frontend setup is not covered here.
 
-**What is verified.** Everything marked **Verified** was run on the development machine (Linux, Python 3.10.12). Steps that need an external service that was not available (a Supabase project, Groq/Gemini keys, Render) are marked **Confirm**: they follow the library APIs and vendor conventions but have not been run for real, so read the vendor's current documentation and expect to adjust.
+**What is verified.** Everything marked **Verified** was run on the development machine (Linux, Python 3.10.12). Section 5 (Supabase and Gemini) has since been run against a real project and is now verified; Groq and Render have not been tried. Anything still marked **Confirm** follows vendor conventions but has not been run, so read the vendor's current documentation and expect to adjust.
 
 Related: [`api.md`](api.md) (the API contract) · [`ARCHITECT.md`](ARCHITECT.md) (design and verification status) · [`PRD.md`](PRD.md)
 
@@ -96,18 +96,30 @@ Interactive docs: `http://localhost:8000/docs`. Without an LLM configured, assis
 
 ---
 
-## 5. Path B: Supabase and real LLMs (**Confirm**)
+## 5. Path B: Supabase and real LLMs (**Verified** with Supabase and Gemini; Groq not tried)
 
-Not run for real; follow the vendor's current documentation.
+Run for real on 19 Sep 2026. Two things to know: Gemini's free tier has a small **daily** request cap per model (it was exhausted during testing, and the API then answers `429 RESOURCE_EXHAUSTED`), so keep the demo's quota in reserve and configure a fallback provider; and the dashboard menu names below are from memory.
 
 1. Create a Supabase project. In `.env` set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `DATABASE_URL`. Confirm in the project settings whether to use the direct or the pooled connection string for your host (the direct host may be IPv6 only). The app already disables prepared statements so it works behind a transaction-mode pooler.
 2. `python scripts/migrate.py`. This creates the tables, enables row-level security everywhere (default deny), and tries to create the private buckets `attachments` and `rag-docs`. If the log says the buckets could not be created in SQL, create two **private** buckets with those names in the Supabase dashboard.
 3. `python scripts/seed.py --reset --auth`. `--auth` creates the demo users in Supabase Auth first (profiles reference `auth.users`, so on Supabase the users must exist before the data). Set `SEED_DEMO_PASSWORD` first. Users are created with fixed ids so the seeded data lines up.
 4. `python scripts/ingest_docs.py` (uploads the PDFs to the `rag-docs` bucket).
-5. Set `AUTH_MODE=supabase`, `STORAGE_BACKEND=supabase`, and the LLM variables. Run one real assistant question and one real email draft per provider before relying on them: the Groq and Gemini request formats are **not verified against the live services**.
+5. Set `AUTH_MODE=supabase`, `STORAGE_BACKEND=supabase`, and the LLM variables. Run one real assistant question and one real email draft before relying on them. The Gemini request format is **verified live**; the Groq one is **not** (no Groq key has been tried).
 6. To call the API as a demo user, sign in through Supabase Auth exactly as the frontend does and send the access token as `Authorization: Bearer <token>`.
 
 ---
+
+### Where to find each value (**Confirm**: dashboard menu names are from memory and may have moved)
+
+| Value | Where to get it |
+|---|---|
+| `SUPABASE_URL` | Supabase dashboard, your project, **Project Settings > API** (or the **Connect** button). Looks like `https://<project-ref>.supabase.co`. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Same area, **API Keys**. You need the **secret** key (`sb_secret_...`) or, on older projects, the legacy `service_role` key. **Not** the publishable/anon key: the backend checks for that at startup and refuses it. Server-side only: never put it in the frontend, chat or Git. |
+| Publishable (anon) key | Same page. This one is for the **frontend** (`VITE_SUPABASE_ANON_KEY`). Not used by the backend. |
+| `DATABASE_URL` | Dashboard **Connect** button, the *connection string* for Postgres (the "Session pooler" string is the safest choice when your host has no IPv6; the *Direct* one may be IPv6 only). It looks like `postgresql://postgres.<project-ref>:<PASSWORD>@aws-0-<region>.pooler.supabase.com:5432/postgres`. Replace `<PASSWORD>` with the database password. If you forgot it: **Project Settings > Database > Reset database password**. If the password contains special characters (`@ : / ? # %`), URL-encode them (for example `@` becomes `%40`). |
+| `SEED_DEMO_PASSWORD` | You choose it: any password of at least 8 characters. It is given to the six demo users so you can sign in as them. |
+| `GEMINI_API_KEY` / `GEMINI_MODEL` | Google AI Studio (aistudio.google.com), API keys. List the models your key can use with a request to the models endpoint, or read the model names in AI Studio; set one that supports `generateContent`. |
+| `GROQ_API_KEY` / `GROQ_MODEL` | console.groq.com, API Keys (keys start `gsk_`). Pick a current model from Groq's model list. Optional: only needed if you want a fallback for Gemini. |
 
 ## 6. Demo data
 

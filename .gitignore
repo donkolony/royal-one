@@ -219,3 +219,8 @@ __marimo__/
 
 # local dev database (scripts/dev_db.py)
 backend/.localdb/
+
+# Any env-file variant can hold secrets (e.g. ".env_", ".env.bak"). Only the examples are committed.
+.env_
+.env.*
+!.env.example

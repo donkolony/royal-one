@@ -307,20 +307,38 @@ export interface Claim extends ClaimSummary {
 export type RequestType = 'address_change' | 'bank_details_change' | 'policy_document' | 'border_letter' | 'irp5' | 'consultation' | 'client_information';
 export type RequestStatus = 'submitted' | 'in_progress' | 'completed' | 'declined';
 
+export type RequestFieldType =
+  | 'string' | 'text' | 'date' | 'integer' | 'boolean' | 'enum' | 'uuid'
+  | 'string_list' | 'date_list' | 'object_list';
+
+/** One payload field of a request type (GET /requests/types). Constraint keys are only present when they apply. */
+export interface RequestFieldDefinition {
+  name: string;
+  label: string;
+  type: RequestFieldType;
+  required: boolean;
+  max_length?: number;
+  pattern?: string;
+  options?: string[];
+  min?: number;
+  max?: number;
+  min_items?: number;
+  max_items?: number;
+  /** Name of another date field this date may not precede (e.g. travel_to not before travel_from). */
+  not_before?: string;
+  not_in_past?: boolean;
+  /** uuid fields: the id must be one of the client's policies ('motor_policy' = motor policies only). */
+  ref?: 'policy' | 'motor_policy';
+  /** object_list fields: the fields of each list item. */
+  item_fields?: RequestFieldDefinition[];
+}
+
 export interface RequestTypeDefinition {
   type: RequestType;
   label: string;
   requires_verification: boolean;
   max_attachments: number;
-  fields: {
-    name: string;
-    label: string;
-    type: string;
-    required: boolean;
-    max_length?: number;
-    pattern?: string;
-    options?: string[];
-  }[];
+  fields: RequestFieldDefinition[];
 }
 
 export interface ClientRequest {
@@ -333,10 +351,14 @@ export interface ClientRequest {
   client_note: string | null;
   adviser_response: string | null;
   requires_verification: boolean;
-  attachments: Attachment[];
   submitted_at: ISODateTime;
   updated_at: ISODateTime;
   completed_at: ISODateTime | null;
+}
+
+/** GET /requests/{id} and the POST /requests response: a ClientRequest plus its attachments. List endpoints and dashboards do NOT include `attachments`. */
+export interface ClientRequestDetail extends ClientRequest {
+  attachments: Attachment[];
 }
 
 export type DocumentCategory = 'policy_wording' | 'internal_process' | 'company_policy' | 'regulation';
@@ -371,7 +393,8 @@ export interface AssistantAnswer {
   answer: string;
   grounded: boolean;
   citations: Citation[];
-  model: { provider: 'groq' | 'gemini'; name: string };
+  /** provider is 'none' when no LLM is configured and the question had no relevant passage. */
+  model: { provider: 'groq' | 'gemini' | 'none'; name: string };
   latency_ms: number;
 }
 
@@ -414,7 +437,8 @@ export interface NeedsAttentionItem {
   subtitle: string;
   client: { id: UUID; full_name: string };
   due_at: ISODateTime | null;
-  link: { resource: string; id: UUID };
+  /** NOT a route: turn it into one with advisorLinkFor() from lib/utils. */
+  link: { resource: 'claim' | 'request' | 'reminder' | 'email_thread'; id: UUID };
 }
 
 export interface ClientDashboard {
@@ -449,4 +473,347 @@ export interface ClaimChecklistItem {
   title: string;
   description: string;
   upload_kind: AttachmentKind | null;
+}
+
+// ---------------------------------------------------------------------------
+// Small static lists: { items } only, no paging fields (insurers, checklist, request types)
+// ---------------------------------------------------------------------------
+export interface Items<T> {
+  items: T[];
+}
+
+// ---------------------------------------------------------------------------
+// Reference data: GET /meta (no login needed, cache it; see lib/meta.ts -> useMeta())
+// ---------------------------------------------------------------------------
+export interface ClaimStatusMeta {
+  value: ClaimStatus;
+  order: number;
+  /** Plain, reassuring wording for the client app. */
+  client_label: string;
+  /** Efficient wording for the adviser portal. */
+  advisor_label: string;
+}
+
+export interface ReminderTypeMeta {
+  type: ReminderType;
+  label: string;
+  default_audience: 'client' | 'advisor' | 'both';
+  /** null for 'custom' reminders. */
+  lead_days: number | null;
+}
+
+export interface RequestTypeMeta {
+  type: RequestType;
+  label: string;
+  requires_verification: boolean;
+}
+
+export type AttachmentContentGroup = 'image' | 'document' | 'audio';
+
+export interface AttachmentRules {
+  max_bytes: number;
+  max_per_claim: number;
+  max_per_request: number;
+  content_types: Record<AttachmentContentGroup, string[]>;
+  kinds: { kind: AttachmentKind; accepts: AttachmentContentGroup[] }[];
+}
+
+export interface Meta {
+  api_version: string;
+  currency: 'ZAR';
+  claim_statuses: ClaimStatusMeta[];
+  hire_car_statuses: HireCarStatus[];
+  reminder_types: ReminderTypeMeta[];
+  request_types: RequestTypeMeta[];
+  policy_categories: PolicyCategory[];
+  policy_statuses: PolicyStatus[];
+  financial_item_categories: Record<FinancialItemKind, FinancialItemCategory[]>;
+  goal_categories: GoalCategory[];
+  document_categories: DocumentCategory[];
+  attachment_rules: AttachmentRules;
+}
+
+// ---------------------------------------------------------------------------
+// Response wrappers that are not Page<T>
+// ---------------------------------------------------------------------------
+/** GET /claims/pipeline (adviser). Columns always come in status order, even when empty. */
+export interface ClaimsPipelineColumn {
+  status: ClaimStatus;
+  label: string;
+  count: number;
+  /** Max 50, oldest submission first. */
+  claims: ClaimSummary[];
+}
+
+export interface ClaimsPipeline {
+  columns: ClaimsPipelineColumn[];
+}
+
+/** POST /reminders/run-check */
+export interface ReminderRunCheckResult {
+  evaluated_clients: number;
+  created: number;
+  already_existing: number;
+}
+
+/** GET /documents/{id}/url. Append `#page=<n>` to open at a citation's page. */
+export interface DocumentUrl {
+  url: string;
+  expires_at: ISODateTime;
+  content_type: string;
+}
+
+// ---------------------------------------------------------------------------
+// Assistant (adviser)
+// ---------------------------------------------------------------------------
+export interface AssistantFilters {
+  category?: DocumentCategory[];
+  insurer_id?: UUID | null;
+  document_ids?: UUID[];
+}
+
+export interface AssistantQuery {
+  /** 3 to 1000 chars. */
+  question: string;
+  /** null starts a new conversation. */
+  conversation_id?: UUID | null;
+  filters?: AssistantFilters;
+}
+
+export interface AssistantConversationSummary {
+  id: UUID;
+  title: string;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+  message_count: number;
+}
+
+export interface AssistantMessage {
+  id: UUID;
+  role: 'user' | 'assistant';
+  content: string;
+  grounded: boolean | null;
+  citations: Citation[];
+  created_at: ISODateTime;
+}
+
+export interface AssistantConversation {
+  id: UUID;
+  title: string;
+  messages: AssistantMessage[];
+}
+
+// ---------------------------------------------------------------------------
+// Email (adviser, simulated in the hackathon build)
+// ---------------------------------------------------------------------------
+export interface EmailStatus {
+  provider: 'mock' | 'gmail';
+  is_simulated: boolean;
+  connected: boolean;
+  account: string | null;
+}
+
+/** GET /email/threads/{id}. Message body_text is UNTRUSTED: render as plain text. */
+export interface EmailThreadDetail {
+  thread: EmailThread;
+  /** Oldest first. */
+  messages: EmailMessage[];
+}
+
+export type EmailDraftPurpose = 'initial_notification' | 'follow_up' | 'reply' | 'status_query';
+
+export interface EmailDraftRequest {
+  claim_id: UUID;
+  /** Required when purpose = 'reply'. */
+  thread_id?: UUID | null;
+  purpose: EmailDraftPurpose;
+  /** Max 500 chars. */
+  instructions?: string | null;
+}
+
+export interface EmailDraftRecipient {
+  name: string | null;
+  email: string;
+}
+
+export interface EmailDraft {
+  to: EmailDraftRecipient[];
+  cc: EmailDraftRecipient[];
+  subject: string;
+  body_text: string;
+}
+
+export interface EmailDraftResponse {
+  draft: EmailDraft;
+  context_used: { claim_fields: string[]; thread_message_ids: UUID[] };
+  /** Facts that were missing and were left out instead of guessed. */
+  warnings: string[];
+  /** Always true. */
+  requires_human_review: boolean;
+  generated_by: { provider: string; name: string };
+}
+
+export interface EmailLinkRequest {
+  claim_id?: UUID | null;
+  client_id?: UUID | null;
+}
+
+// ---------------------------------------------------------------------------
+// Request bodies (only documented fields; unknown fields are rejected with 422)
+// ---------------------------------------------------------------------------
+export interface ProfilePatch {
+  phone?: string | null;
+  /** Clients only. */
+  drivers_licence_expiry?: ISODate | null;
+}
+
+export interface ClientPatch {
+  full_name?: string;
+  phone?: string | null;
+  date_of_birth?: ISODate | null;
+  drivers_licence_expiry?: ISODate | null;
+  client_since?: ISODate | null;
+  last_annual_review_date?: ISODate | null;
+}
+
+export interface ClaimCreate {
+  policy_id?: UUID | null;
+  insurer_id?: UUID | null;
+}
+
+/** PATCH /claims/{id} (client, draft only). incident/police/driver merge one level deep; witnesses/third_parties are replaced whole. */
+export interface ClaimPatch {
+  insurer_id?: UUID | null;
+  incident?: {
+    occurred_at?: ISODateTime | null;
+    location_text?: string | null;
+    location_lat?: number | null;
+    location_lng?: number | null;
+    description?: string | null;
+  };
+  police?: {
+    reported?: boolean | null;
+    case_number?: string | null;
+    station?: string | null;
+    reported_at?: ISODateTime | null;
+  };
+  driver?: {
+    is_policyholder?: boolean | null;
+    full_name?: string | null;
+    relationship_to_policyholder?: string | null;
+  };
+  vehicle_use?: 'personal' | 'business' | null;
+  witnesses?: Witness[];
+  third_parties?: ThirdParty[];
+}
+
+export interface InsurerDetailsPatch {
+  claim_number?: string | null;
+  handler_name?: string | null;
+  handler_email?: string | null;
+  handler_phone?: string | null;
+}
+
+export interface ClaimTransitionRequest {
+  to_status: ClaimStatus;
+  /** Max 1000 chars. */
+  note?: string | null;
+  /** Defaults to true. */
+  visible_to_client?: boolean;
+}
+
+export interface RepairDetailsPatch {
+  repairer_name?: string | null;
+  repairer_phone?: string | null;
+  quote_amount_cents?: number | null;
+  authorised_amount_cents?: number | null;
+  estimated_completion_date?: ISODate | null;
+  completed_at?: ISODateTime | null;
+}
+
+export interface RepairDateRequest {
+  /** Today or later. */
+  drop_off_date: ISODate;
+}
+
+export interface HireCarPatch {
+  status?: HireCarStatus;
+  provider?: string | null;
+  delivery_date?: ISODate | null;
+  return_date?: ISODate | null;
+}
+
+export interface ClaimUpdateRequest {
+  type: 'note' | 'repair_update';
+  /** 1 to 2000 chars. */
+  message: string;
+  visible_to_client?: boolean;
+}
+
+export interface ClaimReviewRequest {
+  rating: 1 | 2 | 3 | 4 | 5;
+  /** Max 1000 chars. */
+  comment?: string | null;
+}
+
+export interface RequestCreate {
+  type: RequestType;
+  payload: Record<string, unknown>;
+  /** Max 1000 chars. */
+  client_note?: string | null;
+}
+
+export interface RequestPatch {
+  status?: 'in_progress' | 'completed' | 'declined';
+  /** Required when declining. Max 2000 chars. */
+  adviser_response?: string | null;
+}
+
+export interface GoalCreate {
+  /** 1 to 5 distinct assigned clients. */
+  client_ids: UUID[];
+  title: string;
+  description?: string | null;
+  category: GoalCategory;
+  target_amount_cents: number;
+  current_amount_cents?: number;
+  target_date?: ISODate | null;
+}
+
+export interface GoalPatch {
+  title?: string;
+  description?: string | null;
+  category?: GoalCategory;
+  target_amount_cents?: number;
+  current_amount_cents?: number;
+  target_date?: ISODate | null;
+  status?: 'active' | 'archived';
+  client_ids?: UUID[];
+}
+
+export interface ReminderCreate {
+  client_id: UUID;
+  type: ReminderType;
+  title: string;
+  description?: string | null;
+  due_date: ISODate;
+  audience: 'client' | 'advisor' | 'both';
+}
+
+export interface ReminderPatch {
+  title?: string;
+  description?: string | null;
+  due_date?: ISODate;
+  audience?: 'client' | 'advisor' | 'both';
+  status?: 'pending' | 'dismissed';
+}
+
+export interface FinancialItemCreate {
+  client_id: UUID;
+  kind: FinancialItemKind;
+  category: FinancialItemCategory;
+  label: string;
+  /** Integer cents, greater than 0. */
+  amount_cents: number;
+  as_of_date: ISODate;
 }

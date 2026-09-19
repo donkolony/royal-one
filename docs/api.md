@@ -19,7 +19,7 @@
 | **P1** | Should have. Build if time permits. |
 | **P2** | Could have, or reserved. The route may return `501 not_implemented` in the hackathon build. |
 
-**Provenance markers.** Where this document states something that is a *proposal by the backend* and not a fact from the PRD or a verified external source, it is marked **(proposal)** or **(requires confirmation)**. Everything in this contract is our own design; no external API behaviour is asserted except where noted in Section 7.1. The LLM providers' HTTP formats (Groq, Gemini) have **not** been verified against the live services; see `docs/ARCHITECT.md`.
+**Provenance markers.** Where this document states something that is a *proposal by the backend* and not a fact from the PRD or a verified external source, it is marked **(proposal)** or **(requires confirmation)**. Everything in this contract is our own design; no external API behaviour is asserted except where noted in Section 7.1. The Gemini request format has been verified live; the Groq one has not (see `docs/ARCHITECT.md` section 0).
 
 ---
 
@@ -1568,6 +1568,7 @@ All paths except `/health` are relative to `/api/v1`.
 | Version | Date | Change |
 |---|---|---|
 | 0.1 | 2026-09-19 | First draft of the contract from PRD v1.0. Not yet implemented. |
+| 0.1.2 | 2026-09-19 | No shape changes. Assistant citation `quote` never starts with a section heading; transient LLM failures (5xx, network) are retried once before falling back or returning `503`. |
 | 0.1.1 | 2026-09-19 | Implemented; contract test added. Changes found while implementing and testing: `claim_police_report` `lead_days` is 2, not 0 (its deadline is 48 h away, so with 0 the reminder never appeared); reference endpoints that need a login are `private`-cached; request field types gained `uuid` and `date_list`; `ClientDetail.counts.open_claims` excludes drafts; reminders older than 90 days overdue are not created; `POST /claims/{id}/attachments` writes no timeline event for a draft; documented the `missing_fields` paths, the assistant's no-LLM behaviour and the `needs_attention` link resources. No breaking changes to shapes. |
 
 Any change after frontend work starts must be recorded here and announced to the frontend team. Additive changes are safe; renames and removals need agreement first.

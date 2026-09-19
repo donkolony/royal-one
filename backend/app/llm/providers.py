@@ -1,10 +1,9 @@
 """Groq and Gemini over plain HTTPS (httpx).
 
-UNVERIFIED AGAINST THE LIVE SERVICES: these request/response formats are written from knowledge of the providers' public
-APIs and have only been exercised against mocked HTTP in the tests. Before relying on them, run one real request per
-provider and confirm the model names you set in GROQ_MODEL / GEMINI_MODEL are currently available.
-  * Groq is called through its OpenAI-compatible chat completions endpoint.
-  * Gemini is called through the generateContent REST method.
+VERIFICATION STATUS
+  * Gemini (generateContent): VERIFIED LIVE on 2026-09-19 with a real key and model (JSON mode, system instruction, retries).
+  * Groq (OpenAI-compatible chat completions): NOT verified against the live service. It is written from knowledge of the
+    public API and only exercised against mocked HTTP. Run one real request and confirm GROQ_MODEL is current before relying on it.
 """
 from __future__ import annotations
 
@@ -29,8 +28,10 @@ def _retry_after(resp: httpx.Response) -> Optional[int]:
 def _raise_for(resp: httpx.Response) -> None:
     if resp.status_code == 429:
         raise LLMError("rate_limited", "provider rate limit", _retry_after(resp))
+    if resp.status_code >= 500:
+        raise LLMError("unavailable", f"provider returned HTTP {resp.status_code}", transient=True)
     if resp.status_code >= 400:
-        # 4xx other than 429 usually means a bad key or model name: treat as unavailable, do not echo the body.
+        # 4xx other than 429 usually means a bad key or model name: not transient, and the body is never echoed.
         raise LLMError("unavailable", f"provider returned HTTP {resp.status_code}")
 
 
@@ -53,7 +54,7 @@ class GroqProvider:
         try:
             resp = self._client.post(GROQ_URL, json=body, headers={"Authorization": f"Bearer {self._key}"}, timeout=timeout_s)
         except httpx.HTTPError as e:
-            raise LLMError("unavailable", type(e).__name__)
+            raise LLMError("unavailable", type(e).__name__, transient=True)
         _raise_for(resp)
         try:
             return resp.json()["choices"][0]["message"]["content"]
@@ -85,7 +86,7 @@ class GeminiProvider:
                 GEMINI_URL.format(model=self.model), json=body, headers={"x-goog-api-key": self._key}, timeout=timeout_s
             )
         except httpx.HTTPError as e:
-            raise LLMError("unavailable", type(e).__name__)
+            raise LLMError("unavailable", type(e).__name__, transient=True)
         _raise_for(resp)
         try:
             return "".join(part["text"] for part in resp.json()["candidates"][0]["content"]["parts"])

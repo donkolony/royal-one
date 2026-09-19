@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, ReactNode } from 'react';
+import React, { useEffect, useId, useRef, ReactNode } from 'react';
 
 interface ModalProps {
   open: boolean;
@@ -11,20 +11,22 @@ interface ModalProps {
 
 export function Modal({ open, onClose, title, children, footer, size = 'md' }: ModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
 
   useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    const previousFocus = document.activeElement as HTMLElement | null;
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && open) onClose();
+      if (e.key === 'Escape') onClose();
     };
-    if (open) {
-      document.addEventListener('keydown', handleEscape);
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'auto';
-    }
+    document.addEventListener('keydown', handleEscape);
+    document.body.style.overflow = 'hidden';
+    modalRef.current?.focus();
     return () => {
       document.removeEventListener('keydown', handleEscape);
-      document.body.style.overflow = 'auto';
+      document.body.style.overflow = previousOverflow;
+      previousFocus?.focus?.();
     };
   }, [open, onClose]);
 
@@ -43,11 +45,12 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: M
         ref={modalRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="modal-title"
-        className={`relative bg-white dark:bg-charcoal-800 rounded-lg shadow-xl w-full ${sizeStyles[size]} flex flex-col max-h-[90vh]`}
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className={`relative bg-white dark:bg-charcoal-800 rounded-lg shadow-xl w-full ${sizeStyles[size]} flex flex-col max-h-[90vh] focus:outline-none`}
       >
         <div className="px-6 py-4 border-b border-charcoal-100 dark:border-charcoal-700">
-          <h2 id="modal-title" className="text-lg font-semibold text-charcoal-900 dark:text-white">{title}</h2>
+          <h2 id={titleId} className="text-lg font-semibold text-charcoal-900 dark:text-white">{title}</h2>
         </div>
         <div className="px-6 py-4 overflow-y-auto flex-1">{children}</div>
         {footer && (

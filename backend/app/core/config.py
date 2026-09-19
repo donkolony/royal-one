@@ -94,6 +94,24 @@ class Settings(BaseSettings):
                     missing.append("GEMINI_MODEL")
         return sorted(set(missing))
 
+    def config_problems(self) -> List[str]:
+        """Values that are set but obviously wrong, each with what to do about it. Checked at startup."""
+        problems: List[str] = []
+        if self.database_url and not self.database_url.startswith(("postgresql://", "postgres://")):
+            problems.append(
+                "DATABASE_URL is not a Postgres connection string (it must start with postgresql://). "
+                "An https://…supabase.co URL is the REST API address, not the database."
+            )
+        key = self.supabase_service_role_key
+        if key.startswith("sb_publishable_"):
+            problems.append(
+                "SUPABASE_SERVICE_ROLE_KEY holds a publishable key (sb_publishable_…), which cannot create users, "
+                "store files or bypass access rules. Use the project's secret key (sb_secret_…) or legacy service_role key."
+            )
+        if "groq" in {self.llm_provider, self.llm_fallback_provider} and self.groq_api_key.startswith("xai-"):
+            problems.append("GROQ_API_KEY looks like an xAI (Grok) key (xai-…). Groq and xAI are different companies; get a Groq key (gsk_…).")
+        return problems
+
     @model_validator(mode="after")
     def _sanity(self) -> "Settings":
         if self.email_provider == "gmail":
@@ -110,6 +128,11 @@ def validate_settings(settings: Optional[Settings] = None) -> Settings:
     """Fail fast, naming every missing variable."""
     s = settings or get_settings()
     missing = s.missing_required()
-    if missing:
-        raise RuntimeError("Missing required environment variable(s): " + ", ".join(missing))
+    problems = s.config_problems()
+    if missing or problems:
+        lines = []
+        if missing:
+            lines.append("Missing required environment variable(s): " + ", ".join(missing))
+        lines += [f"Invalid value: {p}" for p in problems]
+        raise RuntimeError("\n".join(lines))
     return s

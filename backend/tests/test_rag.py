@@ -422,3 +422,8 @@ def test_document_url_404_when_not_indexed(api, ingested, db):
     db.commit()
     doc = api.get("/documents", user=ADVISER).json()["items"][0]
     assert api.get(f"/documents/{doc['id']}/url", user=ADVISER).status_code == 404
+
+
+def test_quotes_do_not_start_with_the_section_heading():
+    content = "Section 3: Notifying a claim\nThe insured must notify the insurer within 30 days of the event."
+    assert best_quote(content, "notification period for a claim") == "The insured must notify the insurer within 30 days of the event."

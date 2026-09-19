@@ -1,33 +1,75 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type Session } from "@supabase/supabase-js";
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string || 'https://placeholder.supabase.co'
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string || 'placeholder'
+// Only the PUBLIC project URL and the publishable (anon) key belong in the browser.
+// Set them in frontend/.env.local (see .env.example). Nothing secret lives in this file.
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+/** False when the env vars are missing (fine in mock mode; sign-in cannot work without them). */
+export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 
-export const getSession = async () => {
-  const { data, error } = await supabase.auth.getSession()
-  if (error) throw error
-  return data.session
-}
+// Placeholders keep the app importable in mock mode; no request is made with them.
+export const supabase = createClient(
+  supabaseUrl || "https://placeholder.supabase.co",
+  supabaseAnonKey || "placeholder",
+);
 
-const CLIENT_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzYjg0MTI4NS03ZTNjLTVlMDUtOTQwMC1lNjZlZDM3Yzc2NDAiLCJhdWQiOiJhdXRoZW50aWNhdGVkIiwicm9sZSI6ImF1dGhlbnRpY2F0ZWQiLCJpYXQiOjE3ODk4MzQzMTIsImV4cCI6MTc4OTg2MzExMn0.RrWEps62qrYcS3mUk2L-TaA3ATxtIlOEWJJRXj1FAlI";
-const ADVISOR_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlMTVhMzRkNi00ZDlmLTUzNTMtOTdmNC0xMmM0MWVhODM3N2QiLCJhdWQiOiJhdXRoZW50aWNhdGVkIiwicm9sZSI6ImF1dGhlbnRpY2F0ZWQiLCJpYXQiOjE3ODk4MzQzMTMsImV4cCI6MTc4OTg2MzExM30.EJfn9KlkrOnTnQBbtt6dJ4lKVV2t5PJs0TF7yDulnQU";
+/** Dispatched on window when the stored session had to be dropped without a SIGNED_OUT event. */
+export const AUTH_CLEARED_EVENT = "rs:auth-cleared";
 
-export const getAccessToken = async () => {
-  // DEV BYPASS: if a dev_role is set, return the hardcoded offline backend token
-  const devRole = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem("dev_role") : null;
-  if (devRole === 'client') return CLIENT_TOKEN;
-  if (devRole === 'advisor') return ADVISOR_TOKEN;
+export const getSession = async (): Promise<Session | null> => {
+  const { data, error } = await supabase.auth.getSession();
+  if (error) throw error;
+  return data.session;
+};
 
-  const session = await getSession()
-  return session?.access_token || null
-}
+/** The current Supabase access token, or null when signed out. supabase-js refreshes it when it is about to expire. */
+export const getAccessToken = async (): Promise<string | null> => {
+  const session = await getSession();
+  return session?.access_token ?? null;
+};
 
-export const signOut = async () => {
-  if (typeof sessionStorage !== 'undefined') {
-    sessionStorage.removeItem("dev_role");
+/** Ask Supabase for a fresh session (used once after a 401 token_expired). Returns false when that failed. */
+export const refreshSession = async (): Promise<boolean> => {
+  try {
+    const { data, error } = await supabase.auth.refreshSession();
+    return !error && Boolean(data.session);
+  } catch {
+    return false;
   }
-  await supabase.auth.signOut();
-  window.location.href = '/sign-in';
+};
+
+function storedSessionKey(): string | null {
+  if (!supabaseUrl) return null;
+  try {
+    return `sb-${new URL(supabaseUrl).hostname.split(".")[0]}-auth-token`;
+  } catch {
+    return null;
+  }
 }
+
+/** Remove the persisted session by hand. Used only when supabase.auth.signOut() could not finish (offline). */
+function clearStoredSession(): void {
+  const key = storedSessionKey();
+  try {
+    if (key) localStorage.removeItem(key);
+  } catch {
+    // storage blocked: nothing persisted anyway
+  }
+  window.dispatchEvent(new Event(AUTH_CLEARED_EVENT));
+}
+
+/**
+ * Sign out of this browser. Local scope: it never depends on the network, and the auth state listener in
+ * AuthContext then clears the profile and the query cache, so the router sends the user to /sign-in.
+ * No hard page reload.
+ */
+export const signOut = async (): Promise<void> => {
+  try {
+    const { error } = await supabase.auth.signOut({ scope: "local" });
+    if (!error) return;
+  } catch {
+    // fall through to the manual clean-up
+  }
+  clearStoredSession();
+};

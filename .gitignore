@@ -224,3 +224,8 @@ backend/.localdb/
 .env_
 .env.*
 !.env.example
+
+# Local tooling and generated files (untracked during the Revenue & Compliance OS work, see docs/AUDIT.md R9)
+venv-extract/
+*.tsbuildinfo
+frontend/vite.config.d.ts

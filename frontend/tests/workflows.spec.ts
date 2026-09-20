@@ -81,6 +81,7 @@ test("requests, reminders, goals and assistant references", async ({
   await expect(
     page.getByRole("button", { name: "Restore", exact: true }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "More", exact: true }).click();
   await page
     .getByRole("link", { name: "Document assistant", exact: true })
     .click();

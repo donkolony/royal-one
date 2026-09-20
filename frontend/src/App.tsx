@@ -26,6 +26,7 @@ import {
   LayoutDashboard,
   Mail,
   Menu,
+  MoreHorizontal,
   MessageSquare,
   Plus,
   Search,
@@ -208,6 +209,7 @@ export default function App() {
   const [modal, setModal] = useState<ModalState>(null);
   const [toast, setToast] = useState("");
   const [mobile, setMobile] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [claimFilter, setClaimFilter] = useState("All");
   const [notifications, setNotifications] = useState(false);
@@ -253,15 +255,17 @@ export default function App() {
   const pendingReminders = ownReminders
     .filter((r) => !r.done)
     .sort((a, b) => a.date.localeCompare(b.date));
-  const navigation: [string, string, LucideIcon][] = [
+  const primaryNavigation: [string, string, LucideIcon][] = [
     ["/", "Overview", LayoutDashboard],
+    ["/claims", "Claims", ClipboardList],
+    ["/goals", "Goals", Target],
+    ["/reminders", "Reminders", CalendarDays],
+  ];
+  const moreNavigation: [string, string, LucideIcon][] = [
     ...(adviser
       ? [["/clients", "Clients", Users] as [string, string, LucideIcon]]
       : []),
     ["/policies", "Policies", ShieldCheck],
-    ["/claims", "Claims", ClipboardList],
-    ["/goals", "Goals", Target],
-    ["/reminders", "Reminders", CalendarDays],
     ["/requests", "Requests", MessageSquare],
     ...(adviser
       ? ([
@@ -270,6 +274,8 @@ export default function App() {
         ] as [string, string, LucideIcon][])
       : []),
   ];
+  const navigation = [...primaryNavigation, ...moreNavigation];
+  const moreActive = moreNavigation.some((n) => n[0] === location.pathname);
   const title =
     navigation.find((n) => n[0] === location.pathname)?.[1] || "Overview";
   const switchRole = (next: "client" | "adviser") => {
@@ -429,7 +435,7 @@ export default function App() {
         </a>
         <div className="workspace-label">YOUR WORKSPACE</div>
         <nav>
-          {navigation.map(([path, label, Icon]) => (
+          {primaryNavigation.map(([path, label, Icon]) => (
             <NavLink key={path} to={path} end={path === "/"}>
               <Icon size={19} />
               <span>{label}</span>
@@ -439,6 +445,29 @@ export default function App() {
               {path === "/inbox" && <span className="nav-dot" />}
             </NavLink>
           ))}
+          <button
+            className={`more-nav-button ${moreActive ? "active" : ""}`}
+            aria-expanded={moreOpen}
+            onClick={() => setMoreOpen((open) => !open)}
+          >
+            <MoreHorizontal size={19} />
+            <span>More</span>
+            <ChevronRight
+              className={`more-chevron ${moreOpen ? "open" : ""}`}
+              size={16}
+            />
+          </button>
+          {moreOpen && (
+            <div className="more-nav-items">
+              {moreNavigation.map(([path, label, Icon]) => (
+                <NavLink key={path} to={path}>
+                  <Icon size={19} />
+                  <span>{label}</span>
+                  {path === "/inbox" && <span className="nav-dot" />}
+                </NavLink>
+              ))}
+            </div>
+          )}
         </nav>
         <div className="sidebar-bottom">
           <button
@@ -476,7 +505,6 @@ export default function App() {
             </span>
           </div>
           <div className="topbar-right">
-            <span className="demo-badge">Demo workspace</span>
             <div className="notification-wrap">
               <IconButton
                 icon={Bell}

@@ -42,6 +42,9 @@ class ClientPatch(Body):
     drivers_licence_expiry: Optional[date] = None
     client_since: Optional[date] = None
     last_annual_review_date: Optional[date] = None
+    # Optional, adviser-entered. The under-insurance rule needs them; without them it does not run (docs/AUDIT.md assumptions).
+    dependants: Optional[StrictInt] = Field(default=None, ge=0, le=20)
+    annual_income_cents: Optional[StrictInt] = Field(default=None, ge=0)
 
 
 # ------------------------------------------------------------------------------------- policies
@@ -288,6 +291,32 @@ class RequestCreate(Body):
 class RequestPatch(Body):
     status: Optional[Literal["in_progress", "completed", "declined"]] = None
     adviser_response: Optional[str] = Field(default=None, max_length=2000)
+
+
+# ---------------------------------------------------------------------------------- opportunities
+class SnoozeBody(Body):
+    days: StrictInt = Field(ge=1, le=90)
+
+
+class OutcomeBody(Body):
+    outcome: Literal["won", "lost"]
+    reason: str = Field(min_length=3, max_length=300)
+    actual_annual_value_cents: Optional[StrictInt] = Field(default=None, ge=0)
+
+
+class OutreachBody(Body):
+    channel: Literal["email", "whatsapp", "call", "meeting"]
+    note: Optional[str] = Field(default=None, max_length=300)
+
+
+class OutreachDraftBody(Body):
+    channel: Literal["email", "whatsapp"]
+
+
+class LifeEventBody(Body):
+    kind: Literal["new_baby", "marriage", "new_vehicle", "property_purchase", "divorce", "job_change"]
+    occurred_on: date
+    note: Optional[str] = Field(default=None, max_length=300)
 
 
 # ------------------------------------------------------------------------------ assistant/email

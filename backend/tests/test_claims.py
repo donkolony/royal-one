@@ -8,7 +8,7 @@ COMPLETE_PATCH = {
     "incident": {"occurred_at": "2026-09-18T17:45:00Z", "location_text": "Corner of A St and B St, Cape Town",
                  "description": "Rear-ended at a red light by a white hatchback."},
     "police": POLICE,
-    "driver": {"is_policyholder": True, "full_name": "Demo Client One"},
+    "driver": {"is_policyholder": True, "full_name": "Thabo Mokoena"},
     "vehicle_use": "personal",
 }
 
@@ -260,7 +260,7 @@ def test_list_and_filters(api):
     assert items["total"] == 3 and {c["status"] for c in items["items"]} == {"submitted", "assessment", "in_repair"}
     assert api.get("/claims?status=assessment&status=in_repair", user=ADVISER).json()["total"] == 2
     assert api.get("/claims?search=SC-778201", user=ADVISER).json()["total"] == 1
-    assert api.get("/claims?search=Client%20Three", user=ADVISER).json()["total"] == 1
+    assert api.get("/claims?search=Johan", user=ADVISER).json()["total"] == 1
     assert api.get(f"/claims?client_id={CLIENT_2}", user=ADVISER).json()["total"] == 1
     assert api.get("/claims?status=bogus", user=ADVISER).status_code == 422
     assert api.get("/claims?sort=colour", user=ADVISER).status_code == 422

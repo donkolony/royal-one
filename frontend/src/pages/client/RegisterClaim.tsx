@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { itemsOf } from '@/lib/utils';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { api } from '@/lib/api';
@@ -16,7 +17,7 @@ function RegisterClaim() {
 
   const { data: insurers, isLoading } = useQuery<Insurer[]>({
     queryKey: ['insurers'],
-    queryFn: () => api.get<Insurer[]>('/insurers'),
+    queryFn: () => api.get<{ items: Insurer[] }>('/insurers').then(itemsOf),
   });
 
   const createDraft = useMutation({
@@ -92,7 +93,7 @@ function RegisterClaim() {
             <button onClick={handlePrev} className="px-4 py-2 border rounded text-charcoal hover:bg-gray-100">Back</button>
             <button 
               onClick={() => navigate(`/claims/${claimId}`)} 
-              className="px-6 py-2 bg-brand-500 text-white font-bold rounded hover:bg-yellow-500 shadow"
+              className="px-6 py-2 bg-brand-500 text-white font-bold rounded hover:bg-brand-500 shadow"
             >
               Submit Claim
             </button>

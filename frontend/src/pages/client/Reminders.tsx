@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { itemsOf } from '@/lib/utils';
+import type { Page } from '@/lib/types';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/utils';
@@ -11,7 +13,7 @@ function Reminders() {
 
   const { data: reminders, isLoading, error } = useQuery<Reminder[]>({
     queryKey: ['reminders', filter],
-    queryFn: () => api.get<Reminder[]>(`/reminders?audience=client&status=${filter}`),
+    queryFn: () => api.get<Page<Reminder>>(`/reminders?audience=client&status=${filter}&limit=100`).then(itemsOf),
   });
 
   const markDone = useMutation({
@@ -65,7 +67,7 @@ function Reminders() {
               {r.status !== 'done' && (
                 <button 
                   onClick={() => markDone.mutate(r.id)}
-                  className="px-4 py-2 bg-brand-500 text-white text-sm font-medium rounded hover:bg-yellow-500 transition-colors"
+                  className="px-4 py-2 bg-brand-500 text-white text-sm font-medium rounded hover:bg-brand-500 transition-colors"
                 >
                   Mark Done
                 </button>

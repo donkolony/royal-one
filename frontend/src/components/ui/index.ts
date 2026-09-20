@@ -17,3 +17,6 @@ export * from './NetWorthCard';
 export * from './GoalCard';
 export * from './ReminderRow';
 export * from './ClaimStatusStepper';
+export * from './PageHeader';
+export * from './InfoPopover';
+export * from './StatTile';

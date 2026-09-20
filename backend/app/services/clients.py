@@ -54,7 +54,7 @@ def patch_me(conn: psycopg.Connection, p: Principal, body: ProfilePatch) -> Dict
 
 _CLIENT_SELECT = """
 select p.id, p.full_name, p.email, p.phone, p.created_at,
-       c.date_of_birth, c.drivers_licence_expiry, c.client_since, c.last_annual_review_date,
+       c.date_of_birth, c.drivers_licence_expiry, c.client_since, c.last_annual_review_date, c.dependants, c.annual_income_cents,
        (select count(*) from policies where client_id = c.id) as n_policies,
        (select count(*) from claims where client_id = c.id and status not in ('draft', 'closed')) as n_open_claims,
        (select count(*) from goal_participants gp join goals g on g.id = gp.goal_id
@@ -70,6 +70,7 @@ def _client_detail(r: Row) -> Dict[str, Any]:
         "id": r["id"], "full_name": r["full_name"], "email": r["email"], "phone": r["phone"],
         "date_of_birth": r["date_of_birth"], "drivers_licence_expiry": r["drivers_licence_expiry"],
         "client_since": r["client_since"], "last_annual_review_date": r["last_annual_review_date"],
+        "dependants": r["dependants"], "annual_income_cents": r["annual_income_cents"],
         "counts": {
             "policies": r["n_policies"], "open_claims": r["n_open_claims"], "active_goals": r["n_active_goals"],
             "pending_requests": r["n_pending_requests"], "pending_reminders": r["n_pending_reminders"],
@@ -105,7 +106,8 @@ def patch_client(conn: psycopg.Connection, p: Principal, client_id: UUID, body: 
     if "full_name" in fields and fields["full_name"] is None:
         raise validation("full_name", "invalid_value", "full_name cannot be cleared.")
     prof = {k: fields[k] for k in ("full_name", "phone") if k in fields}
-    cl = {k: fields[k] for k in ("date_of_birth", "drivers_licence_expiry", "client_since", "last_annual_review_date") if k in fields}
+    cl = {k: fields[k] for k in ("date_of_birth", "drivers_licence_expiry", "client_since", "last_annual_review_date",
+                                 "dependants", "annual_income_cents") if k in fields}
     update_row(conn, "profiles", client_id, prof)
     update_row(conn, "clients", client_id, cl)
     audit.record(conn, p, "client.updated", "client", client_id, client_id=client_id,

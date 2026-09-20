@@ -175,3 +175,10 @@ export function advisorLinkFor(link: { resource: string; id: string }): string {
       return "/advisor";
   }
 }
+
+
+/** South African rand for large amounts, no cents: "R 2 995 000". Use formatZAR when the cents matter. */
+export function formatRand0(cents: number | null | undefined): string {
+  if (cents === null || cents === undefined || Number.isNaN(cents)) return "R 0";
+  return "R\u00a0" + Math.round(cents / 100).toLocaleString("en-ZA").replace(/,/g, "\u00a0");
+}

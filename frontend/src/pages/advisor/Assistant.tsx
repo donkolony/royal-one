@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { itemsOf } from '@/lib/utils';
+import type { Page } from '@/lib/types';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { Skeleton, ErrorBanner } from '@/components/ui';
@@ -12,7 +14,7 @@ export default function AdvisorAssistant() {
 
   const { data: documents } = useQuery({
     queryKey: ['documents'],
-    queryFn: () => api.get('/documents'),
+    queryFn: () => api.get<Page<any>>('/documents?limit=100').then(itemsOf),
   });
 
   const askAssistant = useMutation({
@@ -37,21 +39,21 @@ export default function AdvisorAssistant() {
   return (
     <div className="max-w-4xl mx-auto flex flex-col h-[calc(100vh-6rem)]">
       <div className="mb-4">
-        <h1 className="text-2xl font-bold text-slate-900">Document Assistant</h1>
-        <div className="mt-2 bg-yellow-50 border-l-4 border-yellow-400 p-3 text-sm text-yellow-800">
+        <h1 className="text-2xl font-bold text-charcoal-900">Document Assistant</h1>
+        <div className="mt-2 bg-brand-50 border-l-4 border-brand-400 p-3 text-sm text-brand-500">
           This assistant answers questions from approved documents only. Always verify with the source before advising a client. Not financial advice.
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto space-y-4 mb-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
+      <div className="flex-1 overflow-y-auto space-y-4 mb-4 p-4 bg-charcoal-50 rounded-lg border border-charcoal-200">
         {messages.length === 0 ? (
-          <div className="text-center text-slate-500 mt-10">
+          <div className="text-center text-charcoal-500 mt-10">
             Ask a question about internal policies or document wording.
           </div>
         ) : (
           messages.map((msg, i) => (
             <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[80%] p-4 rounded-lg shadow-sm ${msg.role === 'user' ? 'bg-slate-800 text-white' : 'bg-white border border-slate-200 text-slate-800'}`}>
+              <div className={`max-w-[80%] p-4 rounded-lg shadow-sm ${msg.role === 'user' ? 'bg-charcoal-800 text-white' : 'bg-white border border-charcoal-200 text-charcoal-800'}`}>
                 {msg.role === 'user' ? (
                   <p>{msg.content}</p>
                 ) : (
@@ -67,14 +69,14 @@ export default function AdvisorAssistant() {
                     )}
                     
                     {msg.data.citations?.length > 0 && (
-                      <div className="mt-4 pt-3 border-t border-slate-100 flex flex-wrap gap-2">
+                      <div className="mt-4 pt-3 border-t border-charcoal-100 flex flex-wrap gap-2">
                         {msg.data.citations.map((cite: any, idx: number) => (
                           <a 
                             key={idx} 
                             href={cite.url} 
                             target="_blank" 
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 bg-slate-100 hover:bg-slate-200 text-xs text-slate-700 px-2 py-1 rounded"
+                            className="inline-flex items-center gap-1 bg-charcoal-100 hover:bg-charcoal-200 text-xs text-charcoal-700 px-2 py-1 rounded"
                           >
                             [{idx + 1}] {cite.title} p.{cite.page}
                             {cite.is_synthetic && <span className="ml-1 text-[10px] bg-amber-100 text-amber-700 px-1 rounded">Demo</span>}
@@ -83,7 +85,7 @@ export default function AdvisorAssistant() {
                       </div>
                     )}
                     {msg.data.latency_ms && (
-                      <div className="mt-2 text-[10px] text-slate-400 text-right">
+                      <div className="mt-2 text-[10px] text-charcoal-400 text-right">
                         {msg.data.provider || 'AI'} • {msg.data.latency_ms}ms
                       </div>
                     )}
@@ -96,7 +98,7 @@ export default function AdvisorAssistant() {
         
         {askAssistant.isPending && (
           <div className="flex justify-start">
-            <div className="max-w-[80%] p-4 rounded-lg bg-white border border-slate-200 shadow-sm w-64">
+            <div className="max-w-[80%] p-4 rounded-lg bg-white border border-charcoal-200 shadow-sm w-64">
               <Skeleton className="h-4 w-3/4 mb-2" />
               <Skeleton className="h-4 w-1/2" />
             </div>
@@ -114,7 +116,7 @@ export default function AdvisorAssistant() {
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
           placeholder="e.g., What is the excess for a hire car?"
-          className="flex-1 rounded-md border-slate-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500 sm:text-sm min-h-[60px] resize-none p-3"
+          className="flex-1 rounded-md border-charcoal-300 shadow-sm focus:border-brand-500 focus:ring-brand-500 sm:text-sm min-h-[60px] resize-none p-3"
           rows={2}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -126,7 +128,7 @@ export default function AdvisorAssistant() {
         <button 
           type="submit" 
           disabled={askAssistant.isPending || !question.trim()}
-          className="px-6 py-2 bg-slate-800 text-white font-medium rounded-md hover:bg-slate-700 disabled:opacity-50 h-[60px]"
+          className="px-6 py-2 bg-charcoal-800 text-white font-medium rounded-md hover:bg-charcoal-700 disabled:opacity-50 h-[60px]"
         >
           Send
         </button>

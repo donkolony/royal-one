@@ -95,7 +95,7 @@ DUE_SOON_DAYS = 7
 MAX_OVERDUE_DAYS = 90  # rule-generated reminders older than this are not created (proposal)
 
 # ------------------------------------------------------------------------------------------ policies
-POLICY_CATEGORIES = ["motor", "life", "health", "funeral", "personal_other", "commercial", "investment", "retirement"]
+POLICY_CATEGORIES = ["motor", "life", "health", "funeral", "personal_other", "commercial", "investment", "retirement", "disability"]
 POLICY_STATUSES = ["active", "pending", "lapsed", "cancelled"]
 
 ASSET_CATEGORIES = ["property", "vehicle", "cash", "investments", "retirement", "business", "other_asset"]

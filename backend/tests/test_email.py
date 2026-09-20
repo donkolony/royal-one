@@ -16,7 +16,7 @@ def threads(api, qs=""):
     return {t["id"]: t for t in api.get("/email/threads" + qs, user=ADVISER).json()["items"]}
 
 
-def draft_json(subject="Motor claim update", body="Dear Demo Handler,\n\nPlease advise on claim SC-778201.\n\nKind regards,\nDemo Adviser"):
+def draft_json(subject="Motor claim update", body="Dear Demo Handler,\n\nPlease advise on claim SC-778201.\n\nKind regards,\nSarah van der Merwe"):
     return json.dumps({"subject": subject, "body_text": body})
 
 
@@ -135,8 +135,8 @@ def test_draft_uses_claim_facts_and_never_sends(make_app):
     assert d["draft"]["subject"] == "Motor claim update" and "SC-778201" in d["draft"]["body_text"]
     assert d["warnings"] == [] and "claim.insurer_claim_number" in d["context_used"]["claim_fields"]
     prompt = fake.calls[0]["messages"][-1].content
-    assert "SC-778201" in prompt and "Demo Client Two" in prompt and "Keep it short." in prompt
-    assert "Demo Client One" not in prompt and "Demo Client Three" not in prompt, "only this claim's facts reach the model"
+    assert "SC-778201" in prompt and "Lerato Dlamini" in prompt and "Keep it short." in prompt
+    assert "Thabo Mokoena" not in prompt and "Johan Smit" not in prompt, "only this claim's facts reach the model"
 
 
 def test_no_route_can_send_email(api):

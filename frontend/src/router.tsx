@@ -1,7 +1,7 @@
 import React, { Suspense } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import ClientLayout from "./layouts/ClientLayout";
-import AdvisorLayout from "./layouts/AdvisorLayout";
+import StaffLayout from "./layouts/StaffLayout";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import { RootRedirect } from "./components/auth/RootRedirect";
 import { PageLoader, PageTitle } from "./components/ui";
@@ -36,6 +36,11 @@ const AdvisorRequests = React.lazy(() => import("./pages/advisor/Requests"));
 const AdvisorReminders = React.lazy(() => import("./pages/advisor/Reminders"));
 const Assistant = React.lazy(() => import("./pages/advisor/Assistant"));
 const Email = React.lazy(() => import("./pages/advisor/Email"));
+
+// ── Staff pages shared by advisers and the owner (mounted under /advisor and /owner) ──
+const Radar = React.lazy(() => import("./pages/staff/Radar"));
+const BusinessHealth = React.lazy(() => import("./pages/staff/BusinessHealth"));
+const Drilldown = React.lazy(() => import("./pages/staff/Drilldown"));
 
 // Dev-only kitchen sink for the shared UI kit; import.meta.env.DEV is false in production builds.
 const UiPreview = import.meta.env.DEV ? React.lazy(() => import("./components/dev/UiPreview")) : null;
@@ -80,9 +85,23 @@ export function Router() {
           </Route>
         </Route>
 
+        {/* Owner: the firm's owner sees every client, read-only where an adviser acts */}
+        <Route path="/owner" element={<ProtectedRoute role="owner" />}>
+          <Route element={<StaffLayout />}>
+            <Route index element={<Titled title="Business health"><BusinessHealth /></Titled>} />
+            <Route path="drill/:metric" element={<Titled title="Records"><Drilldown /></Titled>} />
+            <Route path="radar" element={<Titled title="Opportunities"><Radar /></Titled>} />
+            <Route path="clients" element={<Titled title="Clients"><AdvisorClients /></Titled>} />
+            <Route path="clients/:clientId" element={<Titled title="Client"><ClientDetail /></Titled>} />
+            <Route path="claims" element={<Titled title="Claims pipeline"><ClaimsPipeline /></Titled>} />
+            <Route path="claims/:claimId" element={<Titled title="Claim"><ClaimDetail /></Titled>} />
+          </Route>
+        </Route>
+
         {/* Adviser portal */}
         <Route path="/advisor" element={<ProtectedRoute role="advisor" />}>
-          <Route element={<AdvisorLayout />}>
+          <Route element={<StaffLayout />}>
+            <Route path="radar" element={<Titled title="Opportunities"><Radar /></Titled>} />
             <Route index element={<Titled title="Adviser dashboard"><AdvisorDashboard /></Titled>} />
             <Route path="dashboard" element={<Navigate to="/advisor" replace />} />
             <Route path="clients" element={<Titled title="Clients"><AdvisorClients /></Titled>} />

@@ -1,7 +1,7 @@
 export type UUID = string;
 export type ISODate = string;
 export type ISODateTime = string;
-export type Role = 'client' | 'advisor';
+export type Role = 'client' | 'advisor' | 'owner';
 
 export interface Page<T> {
   items: T[];
@@ -53,6 +53,7 @@ export interface Profile {
   created_at: ISODateTime;
   client: ClientProfile | null;
   advisor: { id: UUID } | null;
+  owner?: { id: UUID } | null;
 }
 
 export interface ClientSummary {
@@ -67,6 +68,8 @@ export interface ClientDetail extends ClientSummary {
   drivers_licence_expiry: ISODate | null;
   client_since: ISODate | null;
   last_annual_review_date: ISODate | null;
+  dependants?: number | null;
+  annual_income_cents?: number | null;
   counts: {
     policies: number;
     open_claims: number;
@@ -82,7 +85,7 @@ export interface Insurer {
   name: string;
 }
 
-export type PolicyCategory = 'motor' | 'life' | 'health' | 'funeral' | 'personal_other' | 'commercial' | 'investment' | 'retirement';
+export type PolicyCategory = 'motor' | 'life' | 'health' | 'funeral' | 'personal_other' | 'commercial' | 'investment' | 'retirement' | 'disability';
 export type PolicyStatus = 'active' | 'pending' | 'lapsed' | 'cancelled';
 
 export interface Policy {

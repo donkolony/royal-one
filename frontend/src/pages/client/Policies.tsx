@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { itemsOf, humanize } from '@/lib/utils';
+import type { Page } from '@/lib/types';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatZAR, formatDateTime } from '@/lib/utils';
@@ -9,9 +11,9 @@ function Policies() {
   const [category, setCategory] = useState<string>('');
   const [status, setStatus] = useState<string>('');
 
-  const { data: meta } = useQuery<{ policy_categories: { id: string; label: string }[] }>({
+  const { data: meta } = useQuery<{ policy_categories: string[] }>({
     queryKey: ['meta'],
-    queryFn: () => api.get<{ policy_categories: { id: string; label: string }[] }>('/meta'),
+    queryFn: () => api.get<{ policy_categories: string[] }>('/meta'),
   });
 
   const { data: policies, isLoading, error } = useQuery<Policy[]>({
@@ -21,7 +23,7 @@ function Policies() {
       if (category) q.set('category', category);
       if (status) q.set('status', status);
       const qs = q.toString();
-      return api.get<Policy[]>(`/policies${qs ? `?${qs}` : ''}`);
+      return api.get<Page<Policy>>(`/policies${qs ? `?${qs}` : ''}`).then(itemsOf);
     },
   });
 
@@ -42,7 +44,7 @@ function Policies() {
         >
           <option value="">All Categories</option>
           {meta?.policy_categories?.map((c) => (
-            <option key={c.id} value={c.id}>{c.label}</option>
+            <option key={c} value={c}>{humanize(c)}</option>
           ))}
         </select>
 

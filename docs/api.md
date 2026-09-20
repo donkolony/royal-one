@@ -1422,6 +1422,56 @@ interface AuditEntry {
 
 ---
 
+### 5.16 Opportunity Radar (staff)
+
+A ranked, explainable feed of commercial opportunities. **Detection is rules on data** (`backend/app/services/radar.py`), not a model: under-insurance, goals behind schedule, life events (recorded events, retirement approaching, policy renewals), missing cover categories, lapsed cover, single-product clients, expiring documents. Detection runs when the list, summary or a card is read and is idempotent (a `dedupe_key` makes the same fact surface once).
+
+Every opportunity carries the **evidence** (the actual numbers and fields that triggered it), a `value_formula`, and `is_demo_estimate: true`. **All rand figures are demo estimates** from one config file (`backend/app/domain/radar_config.py`), served by `GET /opportunities/assumptions` for the "How is this calculated?" tooltip. They are placeholders, not real commission rates or premiums.
+
+`staff` = adviser or owner. An adviser sees opportunities for their assigned clients; the owner sees all of them **read-only**. Only the client's adviser can act (the owner gets `403`). A client gets `403` on every route. An opportunity outside the caller's scope is `404` and the attempt is written to the audit trail.
+
+| Endpoint | Notes |
+|---|---|
+| `GET /opportunities` | Paged. `status`: `live` (default: open + actioned), `open`, `snoozed`, `actioned`, `won`, `lost`, `expired`, `all`. Filters `signal`, `client_id`, `adviser_id`. `sort`: `value` (default) or `surfaced`. |
+| `GET /opportunities/summary` | Conversion metrics for the owner (or the adviser's own): `totals`, `by_signal`, `by_adviser`, `definitions`, `assumptions`. Surfaced = ever detected; actioned = a task was created or outreach logged; conversion = won / (won + lost). |
+| `GET /opportunities/assumptions` | `{label, values, signals}`. |
+| `GET /opportunities/{id}` | One card with its event history. |
+| `POST /opportunities/{id}/task` | Creates an adviser reminder (`related_resource: "opportunity"`) and marks it actioned. `409` if one exists. |
+| `POST /opportunities/{id}/draft` | Body `{channel: "email" \| "whatsapp"}`. Returns `{channel, subject, body, source: "template" \| "ai", requires_human_review: true, warnings, note}`. The template is deterministic; with a model configured the wording may be polished, and the polish is discarded (with a warning) if it introduces a figure that is not in the facts or the model fails. **Nothing is sent and nothing is saved.** Shares the assistant's per-user rate limit. |
+| `POST /opportunities/{id}/outreach` | Body `{channel: "email" \| "whatsapp" \| "call" \| "meeting", note?}`. Logs that the adviser reached out; marks it actioned. |
+| `POST /opportunities/{id}/snooze` | Body `{days: 1..90}`. It returns to `open` when the date passes. |
+| `POST /opportunities/{id}/outcome` | Body `{outcome: "won" \| "lost", reason (3-300 chars, required), actual_annual_value_cents?}`. A won opportunity records `won_value_cents` (the actual value if given, else the estimate). Feeds the owner's metrics. |
+| `POST /opportunities/{id}/reopen` | Only lost, expired or snoozed ones. A won opportunity is part of the results and cannot be reopened. |
+| `GET/POST /clients/{id}/life-events` | Life events an adviser notes (`new_baby`, `marriage`, `new_vehicle`, `property_purchase`, `divorce`, `job_change`). `occurred_on` cannot be in the future. |
+
+```ts
+interface Opportunity {
+  id: UUID; client: { id: UUID; full_name: string }; adviser: { id: UUID; full_name: string };
+  signal: "under_insured_life" | "goal_behind" | "life_event" | "missing_cover" | "single_product" | "lapsed_cover" | "expiring_document";
+  signal_label: string; title: string; why_now: string; suggested_action: string; talking_points: string[];
+  evidence: Record<string, unknown>; is_touchpoint: boolean;          // a touchpoint carries no sale estimate
+  est_annual_premium_cents: number; est_annual_value_cents: number; value_formula: string; is_demo_estimate: true;
+  status: "open" | "snoozed" | "actioned" | "won" | "lost" | "expired"; snoozed_until: ISODate | null;
+  outcome_reason: string | null; won_value_cents: number | null; task_reminder_id: UUID | null;
+  surfaced_at: ISODateTime; actioned_at: ISODateTime | null; closed_at: ISODateTime | null;
+  events?: { id: UUID; kind: string; actor: { id: UUID; full_name: string } | null; channel: string | null; note: string | null; created_at: ISODateTime }[];
+}
+```
+
+`PATCH /clients/{id}` also accepts two optional fields the under-insurance rule needs: `dependants` (0-20) and `annual_income_cents`. Without an income the rule does not run.
+
+### 5.17 Business Health (owner) and client health
+
+Owner only (`403` for everyone else). Every tile answers "where is money made or lost?" and every number drills down: each tile carries a `drilldown` key, and `GET /owner/drilldown?metric=<key>` returns the records behind it (`{metric, total, items[{client, adviser, detail, value_cents, link:{path}}], value_cents}`). **A tile's count always equals `total` of its drill-down** (asserted by tests). `link.path` is relative to the staff area (`/clients/{id}`, `/claims/{id}`, `/radar?client={id}`, `/clients/{id}?tab=compliance`).
+
+`GET /owner/business-health` returns: `top_actions` (three, ranked by urgency tier then value; the rule is in `top_actions_rule`), `revenue_at_risk` (total, reasons: lapsed, review overdue, claims stuck, identity expiring), `revenue_opportunity` (open value by adviser and by signal, with lifecycle counts), `productivity`, `retention` (not contacted, reviews overdue, at-risk clients), `products_per_client` (average and distribution), `compliance` (score, components, gaps).
+
+**Honest numbers.** Rand figures are demo estimates from `radar_config.py` and every block states its formula. `productivity` is an **illustrative model** (tracked activity in the last 30 days multiplied by assumed minutes per task, both listed in the payload), not a stopwatch. `avg_claim_handling_days` is real: the mean of `closed_at - submitted_at` over closed claims (`avg_claim_handling_basis` says over how many).
+
+`GET /clients/{id}/health` (staff, in scope): `{score 0-100, band: healthy|watch|at_risk, components[{key,label,weight,value,points,detail}], last_contact_at, days_since_contact, weakest, formula, at_risk_below}`. The formula is simple and printed: 30 x recent contact + 25 x review up to date + 20 x goals on track + 15 x documents valid + 10 x no stuck claims.
+
+---
+
 ## 6. End-to-end flows
 
 Numbers are call order. `→` is a client-to-API call. Use TanStack Query (or equivalent) so results are cached and re-fetched sensibly.
@@ -1588,6 +1638,21 @@ Until the backend is deployed, the JSON examples in Section 5 can be used as fix
 | 69 | GET | `/audit` | staff | P0 |
 | 70 | GET | `/audit/export` | staff | P0 |
 | 71 | GET | `/audit/verify` | owner | P1 |
+| 72 | GET | `/opportunities` | staff | P0 |
+| 73 | GET | `/opportunities/summary` | staff | P0 |
+| 74 | GET | `/opportunities/assumptions` | staff | P0 |
+| 75 | GET | `/opportunities/{opportunity_id}` | staff | P0 |
+| 76 | POST | `/opportunities/{opportunity_id}/task` | advisor | P0 |
+| 77 | POST | `/opportunities/{opportunity_id}/draft` | advisor | P0 |
+| 78 | POST | `/opportunities/{opportunity_id}/outreach` | advisor | P0 |
+| 79 | POST | `/opportunities/{opportunity_id}/snooze` | advisor | P1 |
+| 80 | POST | `/opportunities/{opportunity_id}/outcome` | advisor | P0 |
+| 81 | POST | `/opportunities/{opportunity_id}/reopen` | advisor | P1 |
+| 82 | GET | `/clients/{client_id}/life-events` | staff | P1 |
+| 83 | POST | `/clients/{client_id}/life-events` | advisor | P1 |
+| 84 | GET | `/owner/business-health` | owner | P0 |
+| 85 | GET | `/owner/drilldown` | owner | P0 |
+| 86 | GET | `/clients/{client_id}/health` | staff | P1 |
 
 All paths except `/health` are relative to `/api/v1`.
 
@@ -1598,6 +1663,8 @@ All paths except `/health` are relative to `/api/v1`.
 | Version | Date | Change |
 |---|---|---|
 | 0.1 | 2026-09-19 | First draft of the contract from PRD v1.0. Not yet implemented. |
+| 0.4.0 | 2026-09-20 | Business Health (section 5.17, endpoints 84 to 86) and the compliance data model (identity, consents, advice records) behind the compliance score. Additive. |
+| 0.3.0 | 2026-09-20 | Opportunity Radar (section 5.16, endpoints 72 to 83): `client` gains optional `dependants` and `annual_income_cents`; policy `category` gains `disability`; reminders may relate to an `opportunity`. Demo cast renamed to South African names (ids and emails unchanged). Additive. |
 | 0.2.0 | 2026-09-20 | Revenue & Compliance work, step 1: an `owner` role (`GET /me` returns `owner: {id}` for it; the owner reads clients and the claims pipeline like an adviser); the audit trail (`/audit`, `/audit/export`, `/audit/verify`, section 5.15); `GET /documents/{id}/url` and every write are logged. Additive only. |
 | 0.1.2 | 2026-09-19 | No shape changes. Assistant citation `quote` never starts with a section heading; transient LLM failures (5xx, network) are retried once before falling back or returning `503`. |
 | 0.1.1 | 2026-09-19 | Implemented; contract test added. Changes found while implementing and testing: `claim_police_report` `lead_days` is 2, not 0 (its deadline is 48 h away, so with 0 the reminder never appeared); reference endpoints that need a login are `private`-cached; request field types gained `uuid` and `date_list`; `ClientDetail.counts.open_claims` excludes drafts; reminders older than 90 days overdue are not created; `POST /claims/{id}/attachments` writes no timeline event for a draft; documented the `missing_fields` paths, the assistant's no-LLM behaviour and the `needs_attention` link resources. No breaking changes to shapes. |

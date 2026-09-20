@@ -19,6 +19,7 @@ from app.storage.base import MemoryStorage
 SECRET = "test-secret-test-secret-test-secret-0000"
 ADVISER, ADVISER_2, OWNER = seed.ADVISER, seed.ADVISER_2, seed.OWNER
 CLIENT_1, CLIENT_2, CLIENT_3, CLIENT_4 = seed.CLIENT_1, seed.CLIENT_2, seed.CLIENT_3, seed.CLIENT_4
+CLIENT_5, CLIENT_6, CLIENT_7, CLIENT_8, CLIENT_9, CLIENT_10, CLIENT_11, CLIENT_12 = (getattr(seed, f"CLIENT_{i}") for i in range(5, 13))
 
 
 @pytest.fixture(scope="session")
@@ -107,6 +108,35 @@ def make_app(settings, fresh_db, storage):
 @pytest.fixture
 def api(make_app) -> Api:
     return make_app()
+
+
+@pytest.fixture
+def full_db(fresh_db, settings, storage):
+    """The base demo data plus the extended dataset (what scripts/seed.py loads): twelve clients, three advisers' worth of signals."""
+    with fresh_db.connection() as conn:
+        seed.seed_extended(conn, settings, storage)
+        seed.seed_history(conn)
+    return fresh_db
+
+
+@pytest.fixture
+def make_full_app(settings, full_db, storage):
+    def _make(llm: Optional[LLMRouter] = None, **kw) -> Api:
+        app = create_app(settings, pool=full_db, storage=storage, llm=llm or LLMRouter([]), **kw)
+        return Api(TestClient(app, raise_server_exceptions=False))
+    return _make
+
+
+@pytest.fixture
+def fapi(make_full_app) -> Api:
+    """An API client over the extended dataset."""
+    return make_full_app()
+
+
+@pytest.fixture
+def fdb(full_db):
+    with full_db.connection() as conn:
+        yield conn
 
 
 @pytest.fixture

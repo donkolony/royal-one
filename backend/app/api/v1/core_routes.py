@@ -83,7 +83,7 @@ def client_dashboard(client_id: UUID, conn: psycopg.Connection = Depends(get_con
 @router.get("/policies", tags=["policies"])
 def list_policies(
     paging: Paging = Depends(), client_id: Optional[UUID] = None,
-    category: Optional[Literal["motor", "life", "health", "funeral", "personal_other", "commercial", "investment", "retirement"]] = None,
+    category: Optional[Literal["motor", "life", "health", "funeral", "personal_other", "commercial", "investment", "retirement", "disability"]] = None,
     status: Optional[Literal["active", "pending", "lapsed", "cancelled"]] = None, sort: Optional[str] = Query(None),
     conn: psycopg.Connection = Depends(get_conn), p: Principal = Depends(get_principal),
 ):

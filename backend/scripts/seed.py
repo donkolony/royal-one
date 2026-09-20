@@ -24,7 +24,7 @@ def create_auth_users(settings) -> None:
     if not password:
         raise SystemExit("Set SEED_DEMO_PASSWORD in backend/.env to create the demo users.")
     admin = create_client(settings.supabase_url, settings.supabase_service_role_key).auth.admin
-    for u in seed.USERS:
+    for u in seed.ALL_USERS:
         try:
             admin.create_user({"id": str(u["id"]), "email": u["email"], "password": password, "email_confirm": True})
             print(f"created auth user {u['email']}")
@@ -45,9 +45,9 @@ if __name__ == "__main__":
         if args.reset:
             seed.reset_data(conn)
         try:
-            seed.seed_demo(conn, settings, storage)
+            seed.seed_all(conn, settings, storage)
         except psycopg.errors.ForeignKeyViolation as e:
             raise SystemExit(f"{e}\nOn Supabase, profiles reference auth.users: rerun with --auth so the users exist first.")
         except psycopg.errors.UniqueViolation:
             raise SystemExit("Demo data already exists. Rerun with --reset to replace it.")
-    print("Seeded demo data:", ", ".join(u["email"] for u in seed.USERS))
+    print("Seeded demo data:", ", ".join(u["email"] for u in seed.ALL_USERS))

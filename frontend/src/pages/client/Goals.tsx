@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { itemsOf } from '@/lib/utils';
+import type { Page } from '@/lib/types';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatZAR, formatDateTime } from '@/lib/utils';
@@ -10,7 +12,7 @@ function Goals() {
 
   const { data: goals, isLoading, error } = useQuery<Goal[]>({
     queryKey: ['goals', showAll],
-    queryFn: () => api.get<Goal[]>(`/goals?status=${showAll ? 'all' : 'active'}`),
+    queryFn: () => api.get<Page<Goal>>(`/goals?status=${showAll ? 'all' : 'active'}`).then(itemsOf),
   });
 
   if (isLoading) return <Skeleton className="h-96 w-full" />;

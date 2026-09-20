@@ -14,13 +14,13 @@ import { homeFor } from './routing';
  *  - signed in with the wrong role          -> the not-found page (this section is outside their account's scope,
  *    same as a 403/404 from the API per docs/DESIGN.md §6 "Forbidden or missing -> a neutral 'not found' page")
  */
-export function ProtectedRoute({ role }: { role: Role }) {
+export function ProtectedRoute({ role }: { role: Role | Role[] }) {
   const { session, profile, loading } = useAuth();
   const location = useLocation();
 
   if (loading) return <PageLoader />;
   if (!session) return <Navigate to="/sign-in" replace state={{ from: location }} />;
   if (!profile || homeFor(profile.role) === null) return <AuthErrorScreen />;
-  if (profile.role !== role) return <Navigate to="/not-found" replace />;
+  if (![role].flat().includes(profile.role)) return <Navigate to="/not-found" replace />;
   return <Outlet />;
 }

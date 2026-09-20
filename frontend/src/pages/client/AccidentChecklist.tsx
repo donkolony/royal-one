@@ -1,4 +1,5 @@
 import React from 'react';
+import { itemsOf } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api } from '@/lib/api';
@@ -8,7 +9,7 @@ import type { ClaimChecklistItem } from '@/lib/types';
 function AccidentChecklist() {
   const { data: checklist, isLoading, error } = useQuery<ClaimChecklistItem[]>({
     queryKey: ['accident-checklist'],
-    queryFn: () => api.get<ClaimChecklistItem[]>('/claims/checklist'),
+    queryFn: () => api.get<{ items: ClaimChecklistItem[] }>('/claims/checklist').then(itemsOf),
     staleTime: 3600000,
   });
 

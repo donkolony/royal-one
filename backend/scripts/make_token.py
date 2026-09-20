@@ -15,7 +15,7 @@ if __name__ == "__main__":
     if s.auth_mode != "local_hs256" or not s.supabase_jwt_secret:
         raise SystemExit("Set AUTH_MODE=local_hs256 and SUPABASE_JWT_SECRET in backend/.env first.")
     email = sys.argv[1] if len(sys.argv) > 1 else "client1@demo.example"
-    user = next((u for u in seed.USERS if u["email"] == email), None)
+    user = next((u for u in seed.ALL_USERS if u["email"] == email), None)
     if user is None:
-        raise SystemExit("Unknown demo user. Choose one of: " + ", ".join(u["email"] for u in seed.USERS))
+        raise SystemExit("Unknown demo user. Choose one of: " + ", ".join(u["email"] for u in seed.ALL_USERS))
     print(make_test_token(s.supabase_jwt_secret, str(user["id"]), expires_in=8 * 3600))

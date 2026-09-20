@@ -31,46 +31,46 @@ export default function AdvisorEmail() {
   return (
     <div className="h-full flex flex-col -mx-4 -mt-4">
       {/* PROMINENT DEMO BANNER */}
-      <div className="bg-amber-500 text-slate-900 px-4 py-2 flex items-center justify-center font-bold text-sm shadow-sm z-10 sticky top-0">
+      <div className="bg-amber-500 text-charcoal-900 px-4 py-2 flex items-center justify-center font-bold text-sm shadow-sm z-10 sticky top-0">
         <AlertTriangle className="w-5 h-5 mr-2" />
         Demo email only — these are simulated threads, not a live mailbox. Gmail integration is a post-hackathon roadmap item.
       </div>
 
-      <div className="p-4 border-b border-slate-200 bg-white flex justify-between items-center">
+      <div className="p-4 border-b border-charcoal-200 bg-white flex justify-between items-center">
         <div>
-          <h1 className="text-xl font-bold text-slate-900">Email</h1>
-          <p className="text-sm text-slate-500">adviser@demo.example (simulated)</p>
+          <h1 className="text-xl font-bold text-charcoal-900">Email</h1>
+          <p className="text-sm text-charcoal-500">adviser@demo.example (simulated)</p>
         </div>
       </div>
 
       <div className="flex-1 flex overflow-hidden">
         {/* Thread List */}
-        <div className="w-1/3 border-r border-slate-200 bg-slate-50 overflow-y-auto">
+        <div className="w-1/3 border-r border-charcoal-200 bg-charcoal-50 overflow-y-auto">
           {isLoading && <Skeleton className="h-full w-full" />}
           {error && <div className="p-4"><ErrorBanner error={error} /></div>}
           
-          <div className="divide-y divide-slate-200">
+          <div className="divide-y divide-charcoal-200">
             {threads?.items?.map((thread: any) => (
               <div 
                 key={thread.id} 
                 onClick={() => setSelectedThreadId(thread.id)}
-                className={`p-4 cursor-pointer hover:bg-white transition-colors ${selectedThreadId === thread.id ? 'bg-white border-l-4 border-yellow-500' : 'border-l-4 border-transparent'}`}
+                className={`p-4 cursor-pointer hover:bg-white transition-colors ${selectedThreadId === thread.id ? 'bg-white border-l-4 border-brand-500' : 'border-l-4 border-transparent'}`}
               >
                 <div className="flex justify-between items-start mb-1">
-                  <span className="font-semibold text-sm text-slate-900 truncate pr-2">
+                  <span className="font-semibold text-sm text-charcoal-900 truncate pr-2">
                     {thread.participants.join(', ')}
                   </span>
                   <div className="flex items-center gap-1">
-                    {thread.flagged && <Flag className="w-3 h-3 text-yellow-600" />}
-                    <span className="text-xs text-slate-500 whitespace-nowrap">
+                    {thread.flagged && <Flag className="w-3 h-3 text-brand-600" />}
+                    <span className="text-xs text-charcoal-500 whitespace-nowrap">
                       {new Date(thread.last_message_at).toLocaleDateString()}
                     </span>
                   </div>
                 </div>
-                <h4 className="text-sm font-medium text-slate-800 mb-1 truncate">{thread.subject}</h4>
-                <p className="text-xs text-slate-500 line-clamp-2">{thread.snippet}</p>
+                <h4 className="text-sm font-medium text-charcoal-800 mb-1 truncate">{thread.subject}</h4>
+                <p className="text-xs text-charcoal-500 line-clamp-2">{thread.snippet}</p>
                 {thread.link?.claim_id && (
-                  <div className="mt-2 flex items-center gap-1 text-[10px] font-medium bg-slate-100 text-slate-600 px-2 py-0.5 rounded w-fit">
+                  <div className="mt-2 flex items-center gap-1 text-[10px] font-medium bg-charcoal-100 text-charcoal-600 px-2 py-0.5 rounded w-fit">
                     <LinkIcon className="w-3 h-3" /> Linked to Claim
                   </div>
                 )}
@@ -82,7 +82,7 @@ export default function AdvisorEmail() {
         {/* Thread Detail */}
         <div className="flex-1 bg-white overflow-y-auto flex flex-col">
           {!selectedThreadId ? (
-            <div className="flex-1 flex items-center justify-center text-slate-400">
+            <div className="flex-1 flex items-center justify-center text-charcoal-400">
               <div className="text-center">
                 <Mail className="w-12 h-12 mx-auto mb-2 opacity-20" />
                 <p>Select a thread to view</p>
@@ -92,32 +92,32 @@ export default function AdvisorEmail() {
             <div className="p-6"><Skeleton className="h-64 w-full" /></div>
           ) : threadDetail ? (
             <div className="flex flex-col h-full">
-              <div className="p-6 border-b border-slate-200">
+              <div className="p-6 border-b border-charcoal-200">
                 <div className="flex justify-between items-start">
-                  <h2 className="text-xl font-bold text-slate-900 mb-4">{threadDetail.subject}</h2>
+                  <h2 className="text-xl font-bold text-charcoal-900 mb-4">{threadDetail.subject}</h2>
                   <button 
                     onClick={() => setIsDraftModalOpen(true)}
-                    className="px-4 py-2 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700"
+                    className="px-4 py-2 bg-charcoal-800 text-white text-sm font-medium rounded hover:bg-charcoal-700"
                   >
                     Draft Reply (AI)
                   </button>
                 </div>
                 
-                <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex items-center justify-between">
+                <div className="bg-charcoal-50 p-3 rounded-lg border border-charcoal-200 flex items-center justify-between">
                   {threadDetail.link?.claim_id ? (
-                    <div className="flex items-center gap-2 text-sm text-slate-700">
-                      <LinkIcon className="w-4 h-4 text-slate-400" />
+                    <div className="flex items-center gap-2 text-sm text-charcoal-700">
+                      <LinkIcon className="w-4 h-4 text-charcoal-400" />
                       Linked to Claim: <span className="font-semibold">{threadDetail.link.claim_id}</span>
                     </div>
                   ) : (
                     <div className="flex items-center gap-4">
-                      <span className="text-sm text-slate-600">Not linked to a claim</span>
+                      <span className="text-sm text-charcoal-600">Not linked to a claim</span>
                       <button 
                         onClick={() => {
                           const id = prompt('Enter Claim ID to link:');
                           if (id) linkMutation.mutate({ threadId: threadDetail.id, claimId: id });
                         }}
-                        className="text-xs font-medium text-yellow-600 hover:text-yellow-700"
+                        className="text-xs font-medium text-brand-600 hover:text-brand-700"
                       >
                         Link to Claim
                       </button>
@@ -128,17 +128,17 @@ export default function AdvisorEmail() {
 
               <div className="p-6 space-y-6 flex-1 overflow-y-auto">
                 {(threadDetail as any).messages?.map((msg: any) => (
-                  <div key={msg.id} className="border border-slate-200 rounded-lg overflow-hidden">
-                    <div className="bg-slate-50 p-3 border-b border-slate-200 flex justify-between items-center text-sm">
+                  <div key={msg.id} className="border border-charcoal-200 rounded-lg overflow-hidden">
+                    <div className="bg-charcoal-50 p-3 border-b border-charcoal-200 flex justify-between items-center text-sm">
                       <div>
-                        <span className="font-semibold text-slate-900">{msg.from?.email || msg.from_email}</span>
-                        <span className="text-slate-500 mx-2">to</span>
-                        <span className="text-slate-700">{msg.to?.map((t: any) => t.email).join(', ') || msg.to_emails?.join(', ')}</span>
+                        <span className="font-semibold text-charcoal-900">{msg.from?.email || msg.from_email}</span>
+                        <span className="text-charcoal-500 mx-2">to</span>
+                        <span className="text-charcoal-700">{msg.to?.map((t: any) => t.email).join(', ') || msg.to_emails?.join(', ')}</span>
                       </div>
-                      <span className="text-slate-500 text-xs">{new Date(msg.sent_at).toLocaleString()}</span>
+                      <span className="text-charcoal-500 text-xs">{new Date(msg.sent_at).toLocaleString()}</span>
                     </div>
                     {/* PLAIN TEXT ONLY - Never innerHTML */}
-                    <div className="p-4 text-sm text-slate-800 whitespace-pre-wrap font-sans">
+                    <div className="p-4 text-sm text-charcoal-800 whitespace-pre-wrap font-sans">
                       {msg.body_text}
                     </div>
                   </div>

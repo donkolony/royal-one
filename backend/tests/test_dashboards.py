@@ -6,7 +6,7 @@ from conftest import ADVISER, ADVISER_2, CLIENT_1, CLIENT_3, claim_id
 def test_client_dashboard_shape_and_content(api):
     d = api.get("/me/dashboard", user=CLIENT_1).json()
     assert set(d) == {"generated_at", "client", "adviser", "net_worth", "policies", "open_claims", "goals", "reminders", "pending_requests"}
-    assert d["client"]["full_name"] == "Demo Client One" and d["adviser"]["full_name"] == "Demo Adviser"
+    assert d["client"]["full_name"] == "Thabo Mokoena" and d["adviser"]["full_name"] == "Sarah van der Merwe"
     assert d["policies"]["count"] == 4 and len(d["policies"]["items"]) == 4
     assert {g["title"] for g in d["goals"]["items"]} == {"Retire at 60", "Emergency fund", "Children's university fund"}
     assert d["pending_requests"]["count"] == 2
@@ -83,5 +83,5 @@ def test_stale_claim_alert_disappears_when_the_claim_moves(api):
 
 def test_dashboard_for_a_client_with_nothing(api, db):
     d = api.get("/me/dashboard", user=CLIENT_3).json()
-    assert d["client"]["full_name"] == "Demo Client Three" and d["pending_requests"]["count"] == 0
+    assert d["client"]["full_name"] == "Johan Smit" and d["pending_requests"]["count"] == 0
     assert d["goals"]["items"] == []  # the only goal is achieved, so not active

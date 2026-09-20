@@ -4,6 +4,7 @@ import type { Role } from '../../lib/types';
 export function homeFor(role: Role | string): string | null {
   if (role === 'client') return '/dashboard';
   if (role === 'advisor') return '/advisor';
+  if (role === 'owner') return '/owner';
   return null;
 }
 

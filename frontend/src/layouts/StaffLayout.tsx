@@ -12,24 +12,58 @@ import {
   LogOut,
   Menu,
   X,
+  Gauge,
+  Target,
+  ShieldCheck,
+  ScrollText,
+  Lock,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import type { Role } from "../lib/types";
 
-const navItems = [
-  { label: "Dashboard", path: "/advisor", icon: <LayoutDashboard className="w-5 h-5" aria-hidden="true" />, end: true },
-  { label: "Clients", path: "/advisor/clients", icon: <Users className="w-5 h-5" aria-hidden="true" />, end: false },
-  { label: "Claims", path: "/advisor/claims", icon: <FileText className="w-5 h-5" aria-hidden="true" />, end: false },
-  { label: "Requests", path: "/advisor/requests", icon: <HelpCircle className="w-5 h-5" aria-hidden="true" />, end: false },
-  { label: "Reminders", path: "/advisor/reminders", icon: <Bell className="w-5 h-5" aria-hidden="true" />, end: false },
-  { label: "Assistant", path: "/advisor/assistant", icon: <MessageSquare className="w-5 h-5" aria-hidden="true" />, end: false },
-  { label: "Email", path: "/advisor/email", icon: <Mail className="w-5 h-5" aria-hidden="true" />, end: false },
-];
+const ICON = "w-5 h-5";
+type NavItem = { label: string; path: string; icon: React.ReactNode; end: boolean };
 
-/** Layout route for every adviser page: `<Route element={<AdvisorLayout />}>` renders the matched page in <Outlet />. */
-export default function AdvisorLayout() {
+/** One layout for both staff roles. The owner starts on Business Health; an adviser starts on their dashboard. */
+function navFor(role: Role): NavItem[] {
+  const base = role === "owner" ? "/owner" : "/advisor";
+  const i = (C: LucideIcon) => <C className={ICON} aria-hidden="true" />;
+  if (role === "owner") {
+    return [
+      { label: "Business health", path: base, icon: i(Gauge), end: true },
+      { label: "Opportunities", path: `${base}/radar`, icon: i(Target), end: false },
+      { label: "Clients", path: `${base}/clients`, icon: i(Users), end: false },
+      { label: "Claims", path: `${base}/claims`, icon: i(FileText), end: false },
+      { label: "Compliance", path: `${base}/compliance`, icon: i(ShieldCheck), end: false },
+      { label: "Audit log", path: `${base}/audit`, icon: i(ScrollText), end: false },
+      { label: "Privacy", path: `${base}/privacy`, icon: i(Lock), end: false },
+    ];
+  }
+  return [
+    { label: "Dashboard", path: base, icon: i(LayoutDashboard), end: true },
+    { label: "Opportunities", path: `${base}/radar`, icon: i(Target), end: false },
+    { label: "Clients", path: `${base}/clients`, icon: i(Users), end: false },
+    { label: "Claims", path: `${base}/claims`, icon: i(FileText), end: false },
+    { label: "Requests", path: `${base}/requests`, icon: i(HelpCircle), end: false },
+    { label: "Reminders", path: `${base}/reminders`, icon: i(Bell), end: false },
+    { label: "Assistant", path: `${base}/assistant`, icon: i(MessageSquare), end: false },
+    { label: "Email", path: `${base}/email`, icon: i(Mail), end: false },
+    { label: "Compliance", path: `${base}/compliance`, icon: i(ShieldCheck), end: false },
+    { label: "Audit log", path: `${base}/audit`, icon: i(ScrollText), end: false },
+    { label: "Privacy", path: `${base}/privacy`, icon: i(Lock), end: false },
+  ];
+}
+
+/** Layout route for every staff page (adviser or owner): `<Route element={<StaffLayout />}>` renders the matched page in <Outlet />. */
+export default function StaffLayout() {
   const location = useLocation();
   const { profile, signOut } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const role: Role = profile?.role ?? "advisor";
+  const navItems = navFor(role);
+  const home = role === "owner" ? "/owner" : "/advisor";
+  const portal = role === "owner" ? "Owner" : "Adviser";
 
   // Close the drawer whenever the route changes (also covers the browser back button).
   useEffect(() => {
@@ -47,9 +81,9 @@ export default function AdvisorLayout() {
 
       {/* Mobile Top Bar */}
       <header className="lg:hidden fixed top-0 w-full bg-white dark:bg-charcoal-800 border-b border-charcoal-200 dark:border-charcoal-700 h-16 flex justify-between items-center px-4 z-50">
-        <Link to="/advisor" className="flex items-center">
+        <Link to={home} className="flex items-center">
           <img src="/rs-logo.png" alt="Royal Square Financial Logo" className="h-8 w-auto object-contain mr-2" />
-          <span className="text-charcoal-900 dark:text-white font-bold tracking-tight">Adviser Portal</span>
+          <span className="text-charcoal-900 dark:text-white font-bold tracking-tight">{portal} Portal</span>
         </Link>
         <button
           type="button"
@@ -85,10 +119,10 @@ export default function AdvisorLayout() {
       `}
       >
         <div className="h-16 shrink-0 flex items-center px-6 border-b border-charcoal-200 dark:border-charcoal-700">
-          <Link to="/advisor" className="flex items-center">
+          <Link to={home} className="flex items-center">
             <img src="/rs-logo.png" alt="Royal Square Financial Logo" className="h-8 w-auto object-contain mr-2" />
             <span className="text-charcoal-900 dark:text-white font-bold text-sm tracking-tight leading-tight">
-              Adviser
+              {portal}
               <br />
               Portal
             </span>
@@ -102,7 +136,7 @@ export default function AdvisorLayout() {
           </div>
         )}
 
-        <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto" aria-label="Adviser navigation">
+        <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto" aria-label={`${portal} navigation`}>
           {navItems.map((item) => (
             <NavLink
               key={item.path}

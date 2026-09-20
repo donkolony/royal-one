@@ -71,15 +71,16 @@ def compute_hash(prev_hash: str, e: Dict[str, Any]) -> str:
 # --------------------------------------------------------------------------------------------------- writing
 def record(
     conn: psycopg.Connection, actor: Optional[Principal], action: str, entity_type: str, entity_id: Any = None, *,
-    summary: str, client_id: Optional[UUID] = None, details: Optional[Dict[str, Any]] = None,
+    summary: str, client_id: Optional[UUID] = None, details: Optional[Dict[str, Any]] = None, at: Optional[datetime] = None,
 ) -> int:
-    """Append one entry. `actor=None` means the system itself (automation, the insurer simulator, scheduled checks)."""
+    """Append one entry. `actor=None` means the system itself (automation, the insurer simulator, scheduled checks).
+    `at` exists only so the demo seed can write believable history; nothing in the API passes it."""
     execute(conn, "select pg_advisory_xact_lock(%s)", (_LOCK_KEY,))
     last = fetch_one(conn, "select hash from audit_log order by id desc limit 1")
     prev = last["hash"] if last else GENESIS
     clean = json.loads(json.dumps(details or {}, default=_json_default))   # what the database will hand back is what is hashed
     entry = {
-        "occurred_at": clock.now(),
+        "occurred_at": at or clock.now(),
         "actor_id": actor.id if actor else None,
         "actor_role": actor.role if actor else "system",
         "action": action, "entity_type": entity_type,

@@ -32,12 +32,12 @@ def test_patch_me_permissions(api):
 # --------------------------------------------------------------------------------------------- clients
 def test_client_list_search_sort_paging(api):
     r = api.get("/clients", user=ADVISER).json()
-    assert [c["full_name"] for c in r["items"]] == ["Demo Client One", "Demo Client Three", "Demo Client Two"]
+    assert [c["full_name"] for c in r["items"]] == ["Johan Smit", "Lerato Dlamini", "Thabo Mokoena"]
     assert set(r["items"][0]) == {"id", "full_name", "email", "phone", "date_of_birth", "drivers_licence_expiry", "client_since",
-                                  "last_annual_review_date", "counts", "created_at"}
-    assert api.get("/clients?search=two", user=ADVISER).json()["total"] == 1
+                                  "last_annual_review_date", "dependants", "annual_income_cents", "counts", "created_at"}
+    assert api.get("/clients?search=lerato", user=ADVISER).json()["total"] == 1
     assert api.get("/clients?search=CLIENT3@", user=ADVISER).json()["total"] == 1
-    assert api.get("/clients?sort=-full_name", user=ADVISER).json()["items"][0]["full_name"] == "Demo Client Two"
+    assert api.get("/clients?sort=-full_name", user=ADVISER).json()["items"][0]["full_name"] == "Thabo Mokoena"
     assert api.get("/clients?limit=2&offset=2", user=ADVISER).json()["items"].__len__() == 1
 
 
@@ -144,7 +144,7 @@ def test_goal_progress_and_shape(api):
                       "progress_percent", "target_date", "participants", "created_by", "created_at", "updated_at"}
     assert goals["Emergency fund"]["progress_percent"] == 65.0
     shared = goals["Children's university fund"]
-    assert shared["type"] == "shared" and {p["full_name"] for p in shared["participants"]} == {"Demo Client One", "Demo Client Two"}
+    assert shared["type"] == "shared" and {p["full_name"] for p in shared["participants"]} == {"Thabo Mokoena", "Lerato Dlamini"}
     assert api.get("/goals", user=CLIENT_2).json()["total"] == 1, "a shared goal appears for every participant"
 
 

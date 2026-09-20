@@ -52,15 +52,15 @@ export default function EmailDraftModal({ claimId, threadId, onClose }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal-900/50 p-4">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col">
-        <div className="p-4 border-b border-slate-200 flex justify-between items-center">
-          <h2 className="text-lg font-bold text-slate-900">
+        <div className="p-4 border-b border-charcoal-200 flex justify-between items-center">
+          <h2 className="text-lg font-bold text-charcoal-900">
             Draft Insurer Email
           </h2>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-600"
+            className="text-charcoal-400 hover:text-charcoal-600"
           >
             <X className="w-5 h-5" />
           </button>
@@ -72,13 +72,13 @@ export default function EmailDraftModal({ claimId, threadId, onClose }: Props) {
           !generateDraft.isError ? (
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
+                <label className="block text-sm font-medium text-charcoal-700 mb-1">
                   Purpose
                 </label>
                 <select
                   value={purpose}
                   onChange={(e) => setPurpose(e.target.value)}
-                  className="w-full rounded-md border-slate-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500 sm:text-sm"
+                  className="w-full rounded-md border-charcoal-300 shadow-sm focus:border-brand-500 focus:ring-brand-500 sm:text-sm"
                 >
                   <option value="initial_notification">
                     Initial Notification
@@ -90,7 +90,7 @@ export default function EmailDraftModal({ claimId, threadId, onClose }: Props) {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
+                <label className="block text-sm font-medium text-charcoal-700 mb-1">
                   Additional Instructions (Optional, max 500 chars)
                 </label>
                 <textarea
@@ -99,7 +99,7 @@ export default function EmailDraftModal({ claimId, threadId, onClose }: Props) {
                   maxLength={500}
                   rows={4}
                   placeholder="e.g., Mention that the client is frustrated with the delay..."
-                  className="w-full rounded-md border-slate-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500 sm:text-sm resize-none"
+                  className="w-full rounded-md border-charcoal-300 shadow-sm focus:border-brand-500 focus:ring-brand-500 sm:text-sm resize-none"
                 />
               </div>
 
@@ -107,7 +107,7 @@ export default function EmailDraftModal({ claimId, threadId, onClose }: Props) {
                 <button
                   onClick={() => generateDraft.mutate()}
                   disabled={!claimId && !threadId}
-                  className="px-4 py-2 bg-slate-800 text-white font-medium rounded hover:bg-slate-700 disabled:opacity-50"
+                  className="px-4 py-2 bg-charcoal-800 text-white font-medium rounded hover:bg-charcoal-700 disabled:opacity-50"
                 >
                   Generate Draft
                 </button>
@@ -144,30 +144,30 @@ export default function EmailDraftModal({ claimId, threadId, onClose }: Props) {
                 </div>
               )}
 
-              <div className="space-y-2 text-sm text-slate-700">
-                <div className="flex bg-slate-50 px-3 py-2 rounded border border-slate-200">
+              <div className="space-y-2 text-sm text-charcoal-700">
+                <div className="flex bg-charcoal-50 px-3 py-2 rounded border border-charcoal-200">
                   <span className="font-semibold w-20">To:</span>{" "}
                   {generateDraft.data.draft.to.map((r) => r.email).join(", ")}
                 </div>
                 {generateDraft.data.draft.cc.length > 0 && (
-                  <div className="flex bg-slate-50 px-3 py-2 rounded border border-slate-200">
+                  <div className="flex bg-charcoal-50 px-3 py-2 rounded border border-charcoal-200">
                     <span className="font-semibold w-20">CC:</span>{" "}
                     {generateDraft.data.draft.cc.map((r) => r.email).join(", ")}
                   </div>
                 )}
-                <div className="flex bg-slate-50 px-3 py-2 rounded border border-slate-200">
+                <div className="flex bg-charcoal-50 px-3 py-2 rounded border border-charcoal-200">
                   <span className="font-semibold w-20">Subject:</span>{" "}
                   {generateDraft.data.draft.subject}
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
+                <label className="block text-sm font-medium text-charcoal-700 mb-1">
                   Body (Edit if needed before copying)
                 </label>
                 <textarea
                   defaultValue={generateDraft.data.draft.body_text}
-                  className="w-full h-64 font-mono text-sm rounded-md border-slate-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500 p-3"
+                  className="w-full h-64 font-mono text-sm rounded-md border-charcoal-300 shadow-sm focus:border-brand-500 focus:ring-brand-500 p-3"
                   id="draft-body"
                 />
               </div>
@@ -176,23 +176,23 @@ export default function EmailDraftModal({ claimId, threadId, onClose }: Props) {
         </div>
 
         {generateDraft.data && (
-          <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-between items-center">
+          <div className="p-4 border-t border-charcoal-200 bg-charcoal-50 flex justify-between items-center">
             <button
               onClick={() => generateDraft.mutate()}
-              className="px-4 py-2 bg-slate-200 text-slate-700 font-medium rounded hover:bg-slate-300 text-sm"
+              className="px-4 py-2 bg-charcoal-200 text-charcoal-700 font-medium rounded hover:bg-charcoal-300 text-sm"
             >
               Re-generate
             </button>
             <div className="flex gap-3">
               <button
                 onClick={onClose}
-                className="px-4 py-2 text-slate-600 font-medium rounded hover:bg-slate-100 text-sm"
+                className="px-4 py-2 text-charcoal-600 font-medium rounded hover:bg-charcoal-100 text-sm"
               >
                 Cancel
               </button>
               <button
                 onClick={handleCopy}
-                className="flex items-center px-4 py-2 bg-slate-800 text-white font-medium rounded hover:bg-slate-700 text-sm"
+                className="flex items-center px-4 py-2 bg-charcoal-800 text-white font-medium rounded hover:bg-charcoal-700 text-sm"
               >
                 {copied ? (
                   <CheckCircle className="w-4 h-4 mr-2" />

@@ -39,6 +39,7 @@ ASSUMPTIONS: Dict[str, Any] = {
     "single_product_min_tenure_days": 365,
     "task_due_days": 2,
     # ---- owner views (docs: every derived metric states how it is calculated)
+    "proof_of_address_max_age_days": 90,           # a proof of address older than this is stale (an assumption, not a rule)
     "review_interval_days": 365,                   # a review is overdue 12 months after the last one
     "not_contacted_days": 90,
     "at_risk_health_below": 60,

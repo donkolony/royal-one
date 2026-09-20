@@ -23,6 +23,7 @@ const RegisterClaim = React.lazy(() => import("./pages/client/RegisterClaim"));
 const ClaimTracking = React.lazy(() => import("./pages/client/ClaimTracking"));
 const ClientRequests = React.lazy(() => import("./pages/client/Requests"));
 const ClientProfile = React.lazy(() => import("./pages/client/Profile"));
+const ClientIdentity = React.lazy(() => import("./pages/client/Identity"));
 
 // ── Advisor pages ────────────────────────────────────────────────────────────
 const AdvisorDashboard = React.lazy(() => import("./pages/advisor/Dashboard"));
@@ -81,6 +82,7 @@ export function Router() {
             <Route path="/claims/new" element={<Titled title="Register a claim"><RegisterClaim /></Titled>} />
             <Route path="/claims/:id" element={<Titled title="Claim"><ClaimTracking /></Titled>} />
             <Route path="/requests" element={<Titled title="Requests"><ClientRequests /></Titled>} />
+            <Route path="/identity" element={<Titled title="Identity documents"><ClientIdentity /></Titled>} />
             <Route path="/profile" element={<Titled title="My profile"><ClientProfile /></Titled>} />
           </Route>
         </Route>

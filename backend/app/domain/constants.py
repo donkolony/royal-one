@@ -72,6 +72,8 @@ REMINDER_TYPES: List[Dict[str, Any]] = [
     {"type": "birthday", "label": "Client birthday", "default_audience": "advisor", "lead_days": 7},
     {"type": "anniversary", "label": "Client anniversary", "default_audience": "advisor", "lead_days": 7},
     {"type": "claim_police_report", "label": "Report to police within 48 hours", "default_audience": "client", "lead_days": 2},  # due = 48h after the incident, so it must show at once
+    {"type": "identity_expiry", "label": "Identity document expiring", "default_audience": "both", "lead_days": 60},
+    {"type": "proof_of_address_stale", "label": "Proof of address out of date", "default_audience": "both", "lead_days": 14},
     {"type": "custom", "label": "Custom reminder", "default_audience": "advisor", "lead_days": None},
 ]
 REMINDER_TYPE_BY_NAME = {t["type"]: t for t in REMINDER_TYPES}

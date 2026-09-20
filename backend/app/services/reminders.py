@@ -108,6 +108,18 @@ def compute_candidates(conn: psycopg.Connection, client_ids: List[UUID], today: 
             out.append(Candidate("retirement_fee_renewal", p["client_id"], "policy", p["id"], d, "advisor",
                                  f"Retirement fee renewal: {p['product_name']}"))
 
+    docs = fetch_all(
+        conn, "select id, client_id, doc_type, expiry_date, verified_at from identity_documents where client_id = any(%s) and status = 'verified'", (client_ids,))
+    for d in docs:
+        if d["doc_type"] == "id_document" and d["expiry_date"]:
+            out.append(Candidate("identity_expiry", d["client_id"], "client", d["id"], d["expiry_date"], "both",
+                                 f"ID document expires on {fmt(d['expiry_date'])}", "Ask for the renewed ID so claims and applications stay smooth."))
+        if d["doc_type"] == "proof_of_address":
+            due = d["verified_at"].astimezone(clock.SAST).date() + timedelta(days=90)
+            out.append(Candidate("proof_of_address_stale", d["client_id"], "client", d["id"], due, "both",
+                                 "Proof of address is getting out of date", "Ask for a recent proof of address."))
+        # A driver's licence is covered by the existing licence_expiry rule (verifying one syncs clients.drivers_licence_expiry).
+
     claims = fetch_all(
         conn,
         "select id, client_id, incident_occurred_at, created_at from claims "

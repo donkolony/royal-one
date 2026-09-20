@@ -19,7 +19,7 @@ from app.core.http import Paging, order_by
 from app.domain import constants as C
 from app.schemas.models import RequestCreate, RequestPatch
 from app.domain import workflows as W
-from app.services import attachments as att, audit, workflow
+from app.services import attachments as att, audit, identity, workflow
 from app.services.common import not_found_logged, resolve_client_filter
 from app.storage.base import Storage
 
@@ -210,6 +210,7 @@ def create(conn: psycopg.Connection, settings: Settings, storage: Storage, p: Pr
     if type_def["insurer_forward"]:
         workflow.add_request_event(conn, row["id"], "forwarded", "Passed to your product provider (simulated)",
                                    message="Demo: no real provider is contacted in this prototype.", to_status="submitted")
+    identity.on_request_created(conn, type_def, p.id, row["id"], p)
     workflow.tell(conn, W.REQUEST_NOTIFY_ON_CREATE, p.id, {"label": type_def["label"], "client": p.full_name}, kind="new_request",
                   link={"resource": "request", "id": row["id"]})
     return _detail(conn, settings, storage, p, _load(conn, p, row["id"]))

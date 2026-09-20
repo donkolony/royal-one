@@ -127,3 +127,20 @@ export interface AppNotification {
   created_at: ISODateTime; read_at: ISODateTime | null;
 }
 export interface NotificationList { items: AppNotification[]; unread_count: number }
+
+// ---- Identity vault (5.19)
+export type IdentityDocType = "id_document" | "drivers_licence" | "proof_of_address";
+export type IdentityState = "valid" | "expiring" | "expired" | "pending" | "stale" | "missing";
+export interface IdentityDocument {
+  id: UUID; client_id: UUID; doc_type: IdentityDocType; label: string; filename: string; content_type: string; size_bytes: number;
+  status: "pending" | "verified" | "rejected" | "superseded"; verification_source: "uploaded" | "simulated_verification" | null; verifier: string | null;
+  verified_by: PersonName | null; verified_at: ISODateTime | null; issued_date: ISODate | null; expiry_date: ISODate | null;
+  rejected_reason: string | null; uploaded_at: ISODateTime; reuse_count: number; is_simulated_verification: boolean;
+}
+export interface IdentityVault {
+  client_id: UUID; documents: IdentityDocument[];
+  summary: Record<IdentityDocType, { state: IdentityState; document_id: UUID | null; expiry_date: ISODate | null; verified_at: ISODateTime | null }>;
+  reuse_log: { id: UUID; doc_type: IdentityDocType; label: string; used_for: string; used_for_id: UUID | null; used_at: ISODateTime; used_by: string | null }[];
+  verifier: { name: string; is_simulated: boolean; note: string };
+  rules: { proof_of_address_max_age_days: number; expiry_warning_days: number };
+}

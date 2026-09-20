@@ -1489,6 +1489,24 @@ A request now has a **timeline** (`timeline[]` on `GET /requests/{id}`, same sha
 | `POST /demo/insurer-step` | Body `{claim_id}` or `{request_id}`. The **simulated** insurer (or provider) takes its next step: registers the claim with a `SIM-` number, moves it through assessment, quotes, authorisation, repair and completion; for a request marked `insurer_forward` it acknowledges and then responds. It uses the same code path as an adviser's status change, so the timeline, notifications and audit entry are produced by the engine. Events say "simulated" and have no actor. `409` when it has nothing left to do. An adviser reaches their own clients' items; the owner reaches all. |
 | `POST /demo/reset` | Owner only. Puts every data table back to the seeded state (the approved-document library is kept). |
 
+### 5.19 Identity vault
+
+A verified identity document is captured **once**, stored in the private bucket (`identity/<client>/...`, signed URLs only) and **reused** instead of asking the client again, while it is valid. Document types: `id_document`, `drivers_licence`, `proof_of_address`.
+
+**Verification is simulated.** `IdentityVerifier` is an interface; `DemoIdentityVerifier` (`verifier: "demo_simulated"`) contacts no provider and checks nothing about the document except that an entered expiry date is not in the past. Every document object says `is_simulated_verification`, and `GET /identity` carries a `verifier.note`. This is **not** a KYC check.
+
+| Endpoint | Notes |
+|---|---|
+| `GET /identity` | A client sees their own; staff pass `client_id` (in scope). Returns `documents[]`, `summary` (per type: `state` of `valid`, `expiring` (30 days), `expired`, `pending`, `stale` (proof of address older than 90 days), `missing`), `reuse_log[]` (which claim or request used which document, when, by whom), `verifier`, `rules`. |
+| `POST /identity` | Multipart: `doc_type`, `file` (JPEG, PNG, WebP or PDF, checked by content), optional `expiry_date`, and `client_id` when an adviser adds it for a client. Stored as `pending` (`verification_source: "uploaded"`); the adviser is notified. |
+| `POST /identity/{id}/verify` | Adviser of the client. Runs the verifier, marks it `verified` (`verified_by`, `verified_at`, `verification_source: "simulated_verification"`), supersedes the previous one of that type, and for a licence keeps `clients.drivers_licence_expiry` in step. `409` if not pending. |
+| `POST /identity/{id}/reject` | Body `{reason}`. |
+| `GET /identity/{id}/url` | A short-lived signed URL. Each issue is audited (`identity.viewed`). |
+
+**Reuse.** Creating a claim draft attaches the client's valid verified driver's licence (same private object, no copy) and logs the reuse, so `missing_fields` no longer asks for it; `GET /claims/{id}` gains `identity.drivers_licence` (`reused`, `state`, `expiry_date`). Deleting that attachment from a draft never deletes the vault file. A request whose type `requires_identity` reuses the verified ID (a timeline event says so) or records that one is needed; `address_change` reuses a proof of address that is under 90 days old. An expired, pending or missing document is never reused.
+
+**Expiry.** An ID document within 60 days of expiry creates an `identity_expiry` reminder (client and adviser), a compliance-health flag, and an `expiring_document` radar touchpoint. A proof of address creates `proof_of_address_stale` after 90 days.
+
 ---
 
 ## 6. End-to-end flows
@@ -1678,6 +1696,11 @@ Until the backend is deployed, the JSON examples in Section 5 can be used as fix
 | 90 | POST | `/notifications/{notification_id}/read` | any | P1 |
 | 91 | POST | `/demo/insurer-step` | staff | P0 (demo) |
 | 92 | POST | `/demo/reset` | owner | P0 (demo) |
+| 93 | GET | `/identity` | any | P0 |
+| 94 | POST | `/identity` | any | P0 |
+| 95 | GET | `/identity/{document_id}/url` | any | P1 |
+| 96 | POST | `/identity/{document_id}/verify` | advisor | P0 |
+| 97 | POST | `/identity/{document_id}/reject` | advisor | P1 |
 
 All paths except `/health` are relative to `/api/v1`.
 
@@ -1688,6 +1711,7 @@ All paths except `/health` are relative to `/api/v1`.
 | Version | Date | Change |
 |---|---|---|
 | 0.1 | 2026-09-19 | First draft of the contract from PRD v1.0. Not yet implemented. |
+| 0.6.0 | 2026-09-20 | Identity vault (section 5.19, endpoints 93 to 97); `GET /claims/{id}` gains `identity`; reminder types `identity_expiry` and `proof_of_address_stale`. Additive. |
 | 0.5.0 | 2026-09-20 | Workflow engine (section 5.18, endpoints 87 to 92): `GET /workflows`, in-app notifications, request timelines, `GET /requests/types` extra keys, `GET /meta` `demo_mode`, demo controls. `POST /requests` accepts any type in the workflow config. Additive. |
 | 0.4.0 | 2026-09-20 | Business Health (section 5.17, endpoints 84 to 86) and the compliance data model (identity, consents, advice records) behind the compliance score. Additive. |
 | 0.3.0 | 2026-09-20 | Opportunity Radar (section 5.16, endpoints 72 to 83): `client` gains optional `dependants` and `annual_income_cents`; policy `category` gains `disability`; reminders may relate to an `opportunity`. Demo cast renamed to South African names (ids and emails unchanged). Additive. |

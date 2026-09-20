@@ -301,6 +301,16 @@ class RequestPatch(Body):
     adviser_response: Optional[str] = Field(default=None, max_length=2000)
 
 
+# ---------------------------------------------------------------------------------------- identity vault
+class IdentityVerifyBody(Body):
+    expiry_date: Optional[date] = None
+    issued_date: Optional[date] = None
+
+
+class IdentityRejectBody(Body):
+    reason: str = Field(min_length=3, max_length=300)
+
+
 # ---------------------------------------------------------------------------------- opportunities
 class SnoozeBody(Body):
     days: StrictInt = Field(ge=1, le=90)

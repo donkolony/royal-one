@@ -21,7 +21,7 @@ from app.schemas.models import (
     ClaimCreate, ClaimPatch, HireCarPatch, InsurerDetailsPatch, RepairDateBody, RepairDetailsPatch, ReviewBody,
     TransitionBody, UpdateBody,
 )
-from app.services import attachments as att, audit, workflow
+from app.services import attachments as att, audit, identity, workflow
 from app.services.common import insurer_ref, not_found_logged, resolve_client_filter, update_row
 from app.storage.base import Storage
 
@@ -189,6 +189,7 @@ def detail(conn: psycopg.Connection, settings: Settings, storage: Storage, p: Pr
             "delivery_date": row["hire_car_delivery_date"], "return_date": row["hire_car_return_date"],
         },
         "review": review,
+        "identity": {"drivers_licence": identity.claim_state(conn, row["client_id"], row["id"])},
         "missing_fields": missing,
         "allowed_transitions": allowed_transitions(row, role, missing),
         "attachments": att.list_for(conn, settings, storage, claim_id=row["id"]),
@@ -280,6 +281,9 @@ def create_draft(conn: psycopg.Connection, settings: Settings, storage: Storage,
     row = fetch_one(conn, "insert into claims (client_id, policy_id, insurer_id) values (%s,%s,%s) returning id", (p.id, body.policy_id, insurer_id))
     add_event(conn, row["id"], "created", "Claim started", actor_id=p.id)
     audit.record(conn, p, "claim.created", "claim", row["id"], client_id=p.id, summary="Started a motor claim (draft)")
+    licence = identity.valid_document(conn, p.id, "drivers_licence")
+    if licence:
+        identity.attach_licence_to_claim(conn, licence, row["id"], p)      # verified and valid: do not ask for it again
     return get_claim(conn, settings, storage, p, row["id"])
 
 
@@ -343,7 +347,8 @@ def delete_attachment(conn: psycopg.Connection, settings: Settings, storage: Sto
     execute(conn, "delete from attachments where id = %s", (attachment_id,))
     audit.record(conn, p, "document.deleted", "attachment", attachment_id, client_id=row["client_id"],
                  summary="Removed an attachment from a draft claim", details={"claim_id": claim_id})
-    storage.delete(settings.attachments_bucket, [a["storage_path"]])
+    if not a["storage_path"].startswith("identity/"):       # a reused vault file belongs to the vault, not to the claim
+        storage.delete(settings.attachments_bucket, [a["storage_path"]])
 
 
 def submit(conn: psycopg.Connection, settings: Settings, storage: Storage, p: Principal, claim_id: UUID) -> Dict[str, Any]:

@@ -267,6 +267,24 @@ def _expiring_licence(f: Dict[str, Any], today: date) -> List[Candidate]:
         period=d.isoformat(), touchpoint=True, formula="touchpoint: no sale estimated")]
 
 
+def _expiring_identity(f: Dict[str, Any], today: date) -> List[Candidate]:
+    out = []
+    for d in f.get("idocs", []):
+        if d["doc_type"] != "id_document":
+            continue
+        days = (d["expiry_date"] - today).days
+        if not -30 <= days <= A["document_expiry_window_days"]:
+            continue
+        state = f"expires in {days} day(s)" if days >= 0 else f"expired {-days} day(s) ago"
+        out.append(Candidate(
+            "expiring_document", f["id"], "id_document", "ID document " + ("expiring soon" if days >= 0 else "has expired"),
+            f"The verified ID on file {state} ({d['expiry_date']}).", "Ask for the renewed ID and re-verify it, so claims and applications stay smooth.",
+            [f"ID expiry on file: {d['expiry_date']}", "A valid ID is reused in claims and applications, so an expired one causes friction"],
+            {"document": "id_document", "expiry_date": d["expiry_date"], "days_left": days}, period=d["expiry_date"].isoformat(),
+            touchpoint=True, formula="touchpoint: no sale estimated"))
+    return out
+
+
 def detect(f: Dict[str, Any], today: date) -> List[Candidate]:
     """All opportunities for one client's facts. Pure: no database, no clock, no model."""
     active = [p for p in f["policies"] if p["status"] == "active"]
@@ -276,7 +294,7 @@ def detect(f: Dict[str, Any], today: date) -> List[Candidate]:
     out += _missing_cover(f, today, active_cats | lapsed_cats) + _lapsed(f, today)
     if not [c for c in out if not c.touchpoint]:
         out += _single_product(f, today, active, active_cats)
-    out += _expiring_licence(f, today)
+    out += _expiring_licence(f, today) + _expiring_identity(f, today)
     return out
 
 
@@ -293,6 +311,7 @@ def load_facts(conn: psycopg.Connection, client_ids: List[UUID]) -> List[Dict[st
     items = fetch_all(conn, "select client_id, kind, category, amount_cents from financial_items where client_id = any(%s)", (client_ids,))
     goals = fetch_all(conn, "select gp.client_id, g.* from goals g join goal_participants gp on gp.goal_id = g.id where gp.client_id = any(%s)", (client_ids,))
     events = fetch_all(conn, "select id, client_id, kind, occurred_on, note from life_events where client_id = any(%s)", (client_ids,))
+    idocs = fetch_all(conn, "select client_id, doc_type, expiry_date from identity_documents where client_id = any(%s) and status = 'verified' and expiry_date is not null", (client_ids,))
     out = []
     for c in clients:
         cid = c["id"]
@@ -301,6 +320,7 @@ def load_facts(conn: psycopg.Connection, client_ids: List[UUID]) -> List[Dict[st
             "licence_expiry": c["drivers_licence_expiry"], "dependants": c["dependants"], "income": c["annual_income_cents"],
             "policies": [p for p in pols if p["client_id"] == cid], "items": [i for i in items if i["client_id"] == cid],
             "goals": [g for g in goals if g["client_id"] == cid], "events": [e for e in events if e["client_id"] == cid],
+            "idocs": [d for d in idocs if d["client_id"] == cid],
         })
     return out
 

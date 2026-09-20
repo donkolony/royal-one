@@ -1,142 +1,87 @@
-import { useState } from 'react';
-import { itemsOf } from '@/lib/utils';
-import type { Page } from '@/lib/types';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
-import { Skeleton, ErrorBanner, EmptyState } from '@/components/ui';
+import React, { useState } from "react";
+import { Link } from "react-router-dom";
+import { ChevronDown, ChevronUp } from "lucide-react";
+import { Button, PageHeader, Skeleton, ErrorBanner, EmptyState, StatusPill, DemoBadge } from "@/components/ui";
+import { Timeline } from "@/components/workflow/Timeline";
+import { api } from "@/lib/api";
+import { useAct, useGet } from "@/lib/hooks";
+import { useMeta } from "@/lib/meta";
+import { useStaffBase } from "@/lib/staff";
+import { formatDate, humanize, itemsOf } from "@/lib/utils";
+import type { Page } from "@/lib/types";
+import type { RequestItem } from "@/lib/typesExt";
 
+const FILTERS: [string, string][] = [["open", "Open"], ["completed", "Completed"], ["all", "All"]];
+
+/** The adviser's queue: one screen per request, status buttons from the workflow config, and the same timeline the client sees. */
 export default function AdvisorRequests() {
-  const [filter, setFilter] = useState('open');
-  const queryClient = useQueryClient();
+  const base = useStaffBase();
+  const [filter, setFilter] = useState("open");
+  const [open, setOpen] = useState<string | null>(null);
+  const [reply, setReply] = useState("");
+  const { data: meta } = useMeta();
+  const qs = filter === "open" ? "&open=true" : filter === "all" ? "" : `&status=${filter}`;
+  const list = useGet<Page<RequestItem>>(["requests", filter], `/requests?limit=50${qs}`, { refetchMs: 8000 });
+  const detail = useGet<RequestItem>(["request", open], `/requests/${open}`, { enabled: !!open, refetchMs: 6000 });
 
-  const { data, isLoading, error } = useQuery<any[]>({
-    queryKey: ['advisorRequests', filter],
-    queryFn: () => api.get<Page<any>>(`/requests?limit=100${filter === 'open' ? '&open=true' : filter && filter !== 'all' ? `&status=${filter}` : ''}`).then(itemsOf),
-  });
+  const move = useAct((v: { id: string; status?: string; response?: string }) =>
+    api.patch(`/requests/${v.id}`, { ...(v.status ? { status: v.status } : {}), ...(v.response ? { adviser_response: v.response } : {}) }),
+    [["requests"], ["request"], ["notifications"], ["advisorDashboard"]], () => setReply(""));
+  const provider = useAct((id: string) => api.post("/demo/insurer-step", { request_id: id }), [["requests"], ["request"], ["notifications"]]);
 
-  const updateRequest = useMutation({
-    mutationFn: ({ id, status, adviser_response }: any) => 
-      api.patch(`/requests/${id}`, { status, adviser_response }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['advisorRequests'] }),
-  });
-
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [responseTexts, setResponseTexts] = useState<Record<string, string>>({});
-
-  if (isLoading) return <Skeleton className="h-[600px] w-full" />;
-  if (error) return <ErrorBanner error={error} />;
-
+  const items = itemsOf(list.data);
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-charcoal-900">Client Requests</h1>
-
-      <div className="flex space-x-2 border-b border-charcoal-200">
-        {['all', 'open', 'completed', 'declined'].map((f) => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 ${
-              filter === f 
-                ? 'border-brand-500 text-brand-600' 
-                : 'border-transparent text-charcoal-500 hover:text-charcoal-700'
-            }`}
-          >
-            {f.charAt(0).toUpperCase() + f.slice(1)}
-          </button>
-        ))}
+    <div className="max-w-4xl">
+      <PageHeader title="Requests" subtitle="Client requests, newest first. Anything you change appears on the client's screen within seconds." />
+      <div role="tablist" aria-label="Filter" className="inline-flex rounded-md border border-charcoal-200 dark:border-charcoal-600 p-0.5 mb-4">
+        {FILTERS.map(([v, l]) => <button key={v} role="tab" aria-selected={filter === v} onClick={() => setFilter(v)} className={`px-3 py-1.5 text-sm rounded ${filter === v ? "bg-brand-500 text-white" : "text-charcoal-600 dark:text-charcoal-300"}`}>{l}</button>)}
       </div>
-
-      {!data || data.length === 0 ? (
-        <EmptyState message="No requests found for this filter." />
-      ) : (
-        <div className="space-y-4">
-          {data.map((req: any) => {
-            const isExpanded = expandedId === req.id;
-            
-            return (
-              <div key={req.id} className="bg-white shadow rounded-lg border border-charcoal-200 overflow-hidden">
-                <div 
-                  className="p-4 flex items-center justify-between cursor-pointer hover:bg-charcoal-50"
-                  onClick={() => setExpandedId(isExpanded ? null : req.id)}
-                >
-                  <div className="flex items-center gap-4">
-                    <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-charcoal-100 text-charcoal-800">
-                      {req.type_label || req.type.replace('_', ' ')}
-                    </span>
-                    <span className="font-medium text-charcoal-900">{req.client_name}</span>
-                    <span className="text-sm text-charcoal-500">{new Date(req.submitted_at).toLocaleDateString()}</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {req.requires_verification && (
-                      <span className="px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">
-                        Requires Verification
-                      </span>
-                    )}
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium capitalize
-                      ${req.status === 'completed' ? 'bg-green-100 text-green-800' : 
-                        req.status === 'declined' ? 'bg-red-100 text-red-800' : 
-                        'bg-brand-100 text-brand-500'}`}
-                    >
-                      {req.status.replace('_', ' ')}
-                    </span>
-                  </div>
-                </div>
-
-                {isExpanded && (
-                  <div className="p-4 border-t border-charcoal-200 bg-charcoal-50">
-                    <h4 className="text-sm font-semibold text-charcoal-900 mb-2">Request Details</h4>
-                    <div className="bg-white p-3 rounded border border-charcoal-200 mb-4 overflow-auto">
-                      <pre className="text-xs text-charcoal-700 whitespace-pre-wrap">
-                        {JSON.stringify(req.payload, null, 2)}
-                      </pre>
-                    </div>
-
-                    <div className="space-y-3">
-                      <label className="block text-sm font-medium text-charcoal-700">Adviser Response</label>
-                      <textarea
-                        className="w-full rounded-md border-charcoal-300 shadow-sm focus:border-brand-500 focus:ring-brand-500 sm:text-sm"
-                        rows={3}
-                        value={responseTexts[req.id] ?? (req.adviser_response || '')}
-                        onChange={(e) => setResponseTexts({...responseTexts, [req.id]: e.target.value})}
-                        placeholder="Add a response for the client..."
-                      />
-                      
-                      <div className="flex gap-3">
-                        {req.status !== 'in_progress' && req.status !== 'completed' && (
-                          <button 
-                            onClick={() => updateRequest.mutate({ id: req.id, status: 'in_progress' })}
-                            className="px-4 py-2 bg-charcoal-100 text-charcoal-700 text-sm font-medium rounded hover:bg-charcoal-200"
-                          >
-                            Mark In Progress
-                          </button>
-                        )}
-                        {req.status !== 'completed' && (
-                          <button 
-                            onClick={() => updateRequest.mutate({ id: req.id, status: 'completed', adviser_response: responseTexts[req.id] })}
-                            className="px-4 py-2 bg-brand-500 text-white text-sm font-medium rounded hover:bg-brand-600"
-                          >
-                            Complete
-                          </button>
-                        )}
-                        {req.status !== 'declined' && (
-                          <button 
-                            onClick={() => updateRequest.mutate({ id: req.id, status: 'declined', adviser_response: responseTexts[req.id] })}
-                            disabled={!responseTexts[req.id]}
-                            className="px-4 py-2 bg-red-100 text-red-700 text-sm font-medium rounded hover:bg-red-200 disabled:opacity-50"
-                            title={!responseTexts[req.id] ? "Response required to decline" : ""}
-                          >
-                            Decline
-                          </button>
-                        )}
+      {list.isLoading && <Skeleton className="h-64 w-full" />}
+      {list.error ? <ErrorBanner error={list.error} onRetry={() => void list.refetch()} /> : null}
+      {!list.isLoading && items.length === 0 && <EmptyState title="Nothing in this list" description="New requests from clients appear here by themselves." />}
+      <div className="space-y-3">
+        {items.map((r) => {
+          const isOpen = open === r.id;
+          const terminal = r.status === "completed" || r.status === "declined";
+          return (
+            <article key={r.id} className="rounded-lg border border-charcoal-100 dark:border-charcoal-700 bg-white dark:bg-charcoal-800 shadow-sm">
+              <button className="w-full text-left p-4 flex flex-wrap items-center justify-between gap-2" aria-expanded={isOpen} onClick={() => { setOpen(isOpen ? null : r.id); setReply(""); }}>
+                <span>
+                  <span className="block font-semibold text-charcoal-900 dark:text-white">{r.type_label}</span>
+                  <span className="block text-sm text-charcoal-600 dark:text-charcoal-300">{r.client.full_name} · sent {formatDate(r.submitted_at)}</span>
+                </span>
+                <span className="flex items-center gap-3"><StatusPill status={r.status} />{isOpen ? <ChevronUp className="w-4 h-4" aria-hidden="true" /> : <ChevronDown className="w-4 h-4" aria-hidden="true" />}</span>
+              </button>
+              {isOpen && (
+                <div className="border-t border-charcoal-100 dark:border-charcoal-700 p-4 space-y-4">
+                  <dl className="grid sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                    {Object.entries(r.payload).map(([k, v]) => (
+                      <div key={k}><dt className="text-xs uppercase tracking-wide text-charcoal-500">{humanize(k)}</dt><dd className="text-charcoal-900 dark:text-white break-words">{Array.isArray(v) ? v.map((x) => (typeof x === "object" ? JSON.stringify(x) : String(x))).join(", ") : String(v ?? "")}</dd></div>
+                    ))}
+                  </dl>
+                  {r.client_note && <p className="text-sm rounded bg-charcoal-50 dark:bg-charcoal-900 p-3"><span className="font-semibold">Client note: </span>{r.client_note}</p>}
+                  <p className="text-sm"><Link to={`${base}/clients/${r.client.id}`} className="text-brand-600 dark:text-brand-300 hover:underline">Open {r.client.full_name}</Link></p>
+                  <Timeline events={detail.data?.timeline ?? []} />
+                  {!terminal && (
+                    <div className="space-y-2">
+                      <label className="block text-sm"><span className="font-medium">Reply to the client (required to decline)</span>
+                        <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={2} maxLength={2000} className="mt-1 w-full rounded-md border-charcoal-300 dark:bg-charcoal-900 dark:border-charcoal-600 text-sm" /></label>
+                      <div className="flex flex-wrap gap-2">
+                        {r.status === "submitted" && <Button size="sm" variant="secondary" loading={move.isPending} onClick={() => move.mutate({ id: r.id, status: "in_progress", response: reply })}>Start work</Button>}
+                        <Button size="sm" loading={move.isPending} onClick={() => move.mutate({ id: r.id, status: "completed", response: reply })}>Mark completed</Button>
+                        <Button size="sm" variant="danger" disabled={reply.trim().length < 3} onClick={() => move.mutate({ id: r.id, status: "declined", response: reply })}>Decline</Button>
+                        {reply.trim() && <Button size="sm" variant="ghost" onClick={() => move.mutate({ id: r.id, response: reply })}>Send reply only</Button>}
+                        {meta?.demo_mode && r.insurer_forward && <Button size="sm" variant="ghost" loading={provider.isPending} onClick={() => provider.mutate(r.id)}>Demo: simulate provider <DemoBadge>Demo</DemoBadge></Button>}
                       </div>
+                      {(move.error || provider.error) ? <ErrorBanner error={move.error || provider.error} /> : null}
                     </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
+                  )}
+                </div>
+              )}
+            </article>
+          );
+        })}
+      </div>
     </div>
   );
 }

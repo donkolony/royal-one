@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import { PageHeader, StatTile, Bar, DemoBadge, InfoPopover, Skeleton, ErrorBanner, Card } from "../../components/ui";
 import { useGet } from "../../lib/hooks";
+import { ResetDemoButton } from "../../components/staff/ResetDemoButton";
 import { useStaffBase } from "../../lib/staff";
 import { formatRand0, relativeTime } from "../../lib/utils";
 import type { BusinessHealth } from "../../lib/typesExt";
@@ -30,6 +31,7 @@ export default function BusinessHealthPage() {
       <PageHeader
         title="Business health"
         badge={<DemoBadge />}
+        actions={<ResetDemoButton />}
         subtitle={<>Where money is made or lost across {d.clients} clients. Updated {relativeTime(d.generated_at)}. {d.label}</>}
       />
 

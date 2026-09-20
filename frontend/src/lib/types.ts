@@ -523,6 +523,7 @@ export interface AttachmentRules {
 
 export interface Meta {
   api_version: string;
+  demo_mode?: boolean;
   currency: 'ZAR';
   claim_statuses: ClaimStatusMeta[];
   hire_car_statuses: HireCarStatus[];

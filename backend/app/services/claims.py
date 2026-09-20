@@ -21,7 +21,7 @@ from app.schemas.models import (
     ClaimCreate, ClaimPatch, HireCarPatch, InsurerDetailsPatch, RepairDateBody, RepairDetailsPatch, ReviewBody,
     TransitionBody, UpdateBody,
 )
-from app.services import attachments as att, audit
+from app.services import attachments as att, audit, workflow
 from app.services.common import insurer_ref, not_found_logged, resolve_client_filter, update_row
 from app.storage.base import Storage
 
@@ -114,23 +114,8 @@ def missing_fields(row: Row, kinds: set) -> List[str]:
 
 # ---------------------------------------------------------------------------- rules: transitions
 def allowed_transitions(row: Row, role: str, missing: List[str]) -> List[Dict[str, Any]]:
-    status = row["status"]
-    idx = C.STATUS_ORDER.index(status)
-    if role == "client":
-        if status == "draft":
-            return [{"to_status": "submitted", "direction": "forward", "label": "Send to Royal Square", "requires": missing, "actor": "client"}]
-        if status == "completed":
-            return [{"to_status": "closed", "direction": "forward", "label": "Sign off and close", "requires": [], "actor": "client"}]
-        return []
-    out: List[Dict[str, Any]] = []
-    if 1 <= idx <= 7:
-        to = C.STATUS_ORDER[idx + 1]
-        requires = ["insurer_details.claim_number"] if to == "registered" and _blank(row["insurer_claim_number"]) else []
-        out.append({"to_status": to, "direction": "forward", "label": C.FORWARD_LABELS[to], "requires": requires, "actor": "advisor"})
-    if 2 <= idx <= 7:
-        prev = C.STATUS_ORDER[idx - 1]
-        out.append({"to_status": prev, "direction": "back", "label": f"Move back to {C.STATUS_BY_VALUE[prev]['advisor_label'].lower()}", "requires": [], "actor": "advisor"})
-    return out
+    """What `role` may do next. The table is domain/workflows.py; the same call offers the buttons AND enforces them."""
+    return workflow.transitions(row["status"], role, {"missing_fields": missing, "insurer_details.claim_number": row["insurer_claim_number"]})
 
 
 def _police(row: Row) -> Dict[str, Any]:
@@ -378,6 +363,9 @@ def submit(conn: psycopg.Connection, settings: Settings, storage: Storage, p: Pr
     add_event(conn, claim_id, "submitted", "Claim sent to Royal Square", from_status="draft", to_status="submitted", actor_id=p.id)
     audit.record(conn, p, "claim.submitted", "claim", claim_id, client_id=row["client_id"], summary=f"Submitted claim {reference}",
                  details={"reference": reference})
+    workflow.tell(conn, workflow.claim_notices("draft", "submitted", "client"), p.id,
+                  {"reference": reference, "client": row["client_name"], "status_label": C.STATUS_BY_VALUE["submitted"]["client_label"]},
+                  kind="new_claim", link={"resource": "claim", "id": claim_id})
     return get_claim(conn, settings, storage, p, claim_id)
 
 
@@ -389,6 +377,8 @@ def choose_repair_date(conn: psycopg.Connection, settings: Settings, storage: St
     add_event(conn, claim_id, "repair_date_chosen", "Repair date chosen", message=f"Vehicle goes in on {body.drop_off_date.day} {body.drop_off_date.strftime('%b %Y')}.", actor_id=p.id)
     audit.record(conn, p, "claim.repair_date_chosen", "claim", claim_id, client_id=row["client_id"],
                  summary=f"Chose a repair drop-off date for claim {row['reference']}", details={"drop_off_date": body.drop_off_date})
+    workflow.tell_one(conn, "advisor", row["client_id"], kind="claim_update", title=f"{row['client_name']} chose a repair date",
+                      body=f"Claim {row['reference']}: vehicle goes in on {body.drop_off_date}.", link={"resource": "claim", "id": claim_id})
     return get_claim(conn, settings, storage, p, claim_id)
 
 
@@ -405,6 +395,8 @@ def review(conn: psycopg.Connection, settings: Settings, storage: Storage, p: Pr
     add_event(conn, claim_id, "review_submitted", "Review received. Claim closed", message=f"Rating: {body.rating}/5", from_status="completed", to_status="closed", actor_id=p.id)
     audit.record(conn, p, "claim.reviewed", "claim", claim_id, client_id=row["client_id"],
                  summary=f"Reviewed and closed claim {row['reference']}", details={"rating": body.rating})
+    workflow.tell_one(conn, "advisor", row["client_id"], kind="claim_update", title=f"{row['client_name']} signed off claim {row['reference']}",
+                      body=f"Rated {body.rating} out of 5.", link={"resource": "claim", "id": claim_id})
     return get_claim(conn, settings, storage, p, claim_id)
 
 
@@ -424,6 +416,26 @@ def patch_insurer_details(conn: psycopg.Connection, settings: Settings, storage:
     return get_claim(conn, settings, storage, p, claim_id)
 
 
+def move(conn: psycopg.Connection, row: Row, to: str, *, title: str, message: Optional[str], visible: bool, actor: Optional[Principal],
+         simulated: bool = False) -> None:
+    """The one place a claim changes status: the update, the timeline event, the audit entry and the notifications happen
+    together. `actor=None` is the system (the simulated insurer); it uses the adviser's transitions from the workflow config."""
+    frm = row["status"]
+    closing = ", closed_at = now()" if to == "closed" else ""
+    execute(conn, f"update claims set status = %s, status_changed_at = now(), updated_at = now(){closing} where id = %s", (to, row["id"]))
+    add_event(conn, row["id"], "status_changed", title, message=message, visible=visible, from_status=frm, to_status=to,
+              actor_id=actor.id if actor else None)
+    audit.record(conn, actor, "claim.status_changed", "claim", row["id"], client_id=row["client_id"],
+                 summary=f"Moved claim {row['reference']} from {frm} to {to}" + (" (simulated insurer)" if simulated else ""),
+                 details={"from": frm, "to": to, "visible_to_client": visible, "simulated": simulated})
+    ctx = {"reference": row["reference"], "client": row["client_name"], "status_label": C.STATUS_BY_VALUE[to]["client_label"]}
+    notices = [n for n in workflow.claim_notices(frm, to, "advisor") if visible or n.to != "client"]
+    workflow.tell(conn, tuple(notices), row["client_id"], ctx, kind="claim_update", link={"resource": "claim", "id": row["id"]})
+    if simulated:
+        workflow.tell_one(conn, "advisor", row["client_id"], kind="claim_update", title=f"Insurer (simulated): {ctx['status_label']}",
+                          body=f"Claim {row['reference']} for {row['client_name']}.", link={"resource": "claim", "id": row["id"]})
+
+
 def transition(conn: psycopg.Connection, settings: Settings, storage: Storage, p: Principal, claim_id: UUID, body: TransitionBody) -> Dict[str, Any]:
     row = load_claim(conn, p, claim_id, lock=True)
     options = {t["to_status"]: t for t in allowed_transitions(row, "advisor", [])}
@@ -433,16 +445,10 @@ def transition(conn: psycopg.Connection, settings: Settings, storage: Storage, p
     if opt["requires"]:
         raise validation_many([field_error(r, "required", "Record the insurer's claim number first.") for r in opt["requires"]])
     to = body.to_status
-    closing = ", closed_at = now()" if to == "closed" else ""
-    execute(conn, f"update claims set status = %s, status_changed_at = now(), updated_at = now(){closing} where id = %s", (to, claim_id))
     label = C.STATUS_BY_VALUE[to]["client_label"]
     title = label if opt["direction"] == "forward" else f"Status corrected: {label}"
     message = body.note or (f"Claim number {row['insurer_claim_number']}" if to == "registered" else None)
-    add_event(conn, claim_id, "status_changed", title, message=message, visible=body.visible_to_client,
-              from_status=row["status"], to_status=to, actor_id=p.id)
-    audit.record(conn, p, "claim.status_changed", "claim", claim_id, client_id=row["client_id"],
-                 summary=f"Moved claim {row['reference']} from {row['status']} to {to}",
-                 details={"from": row["status"], "to": to, "visible_to_client": body.visible_to_client})
+    move(conn, row, to, title=title, message=message, visible=body.visible_to_client, actor=p)
     return get_claim(conn, settings, storage, p, claim_id)
 
 
@@ -472,6 +478,8 @@ def patch_hire_car(conn: psycopg.Connection, settings: Settings, storage: Storag
         add_event(conn, claim_id, "hire_car_updated", title, actor_id=p.id)
         audit.record(conn, p, "claim.hire_car_updated", "claim", claim_id, client_id=row["client_id"],
                      summary=f"Updated the hire car on claim {row['reference']}", details={"status": new_status})
+        workflow.tell_one(conn, "client", row["client_id"], kind="claim_update", title=title,
+                          body=f"Claim {row['reference']}.", link={"resource": "claim", "id": claim_id})
     return get_claim(conn, settings, storage, p, claim_id)
 
 
@@ -483,6 +491,9 @@ def post_update(conn: psycopg.Connection, p: Principal, claim_id: UUID, body: Up
     audit.record(conn, p, "claim.note_added" if body.type == "note" else "claim.repair_update_posted", "claim", claim_id,
                  client_id=row["client_id"], summary=f"Posted a {'note' if body.type == 'note' else 'repair update'} on claim {row['reference']}",
                  details={"visible_to_client": visible})
+    if visible:
+        workflow.tell_one(conn, "client", row["client_id"], kind="claim_update", title=f"New update on claim {row['reference']}",
+                          body=body.message[:140], link={"resource": "claim", "id": claim_id})
     execute(conn, "update claims set updated_at = now() where id = %s", (claim_id,))
     r = fetch_one(conn, "select e.*, a.full_name as actor_name, a.role as actor_role from claim_events e left join profiles a on a.id = e.actor_id where e.id = %s", (ev["id"],))
     return event_object(r)

@@ -45,17 +45,19 @@ USERS: List[Dict[str, Any]] = [
 ]
 
 TABLES = [
-    "opportunity_events", "opportunities", "life_events", "audit_log", "email_messages", "email_threads", "assistant_messages", "assistant_conversations", "document_chunks", "documents",
+    "notifications", "request_events", "opportunity_events", "opportunities", "life_events", "identity_reuse_log", "identity_documents",
+    "consents", "advice_records", "audit_log", "email_messages", "email_threads", "assistant_messages", "assistant_conversations", "document_chunks", "documents",
     "attachments", "requests", "claim_events", "claims", "reminders", "goal_participants", "goals", "financial_items",
     "policies", "clients", "profiles",
 ]
 
 
-def reset_data(conn: psycopg.Connection) -> None:
+def reset_data(conn: psycopg.Connection, keep_documents: bool = False) -> None:
     """Empty every data table (reference data such as insurers stays). The audit log is append-only; the reset is the one
     place allowed to empty it, for this transaction only (migration 0003)."""
     execute(conn, "set local app.audit_reset = 'on'")
-    execute(conn, f"truncate {', '.join(TABLES)} restart identity cascade")
+    tables = [t for t in TABLES if not (keep_documents and t in ("documents", "document_chunks"))]
+    execute(conn, f"truncate {', '.join(tables)} restart identity cascade")
     execute(conn, "alter sequence claim_reference_seq restart with 1")
 
 

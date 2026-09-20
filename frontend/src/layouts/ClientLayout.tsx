@@ -1,6 +1,8 @@
 import React, { Suspense } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { DarkModeToggle, ErrorBoundary, PageLoader } from "../components/ui";
+import { NotificationBell } from "../components/NotificationBell";
+import { useMediaQuery } from "../lib/hooks";
 import { Home, FileText, Target, Bell, HelpCircle, LogOut, Shield, User } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 
@@ -18,6 +20,7 @@ const navItems = [
 export default function ClientLayout() {
   const location = useLocation();
   const { profile, signOut } = useAuth();
+  const desktop = useMediaQuery("(min-width: 768px)");
 
   return (
     <div className="min-h-screen bg-charcoal-50 dark:bg-charcoal-900 flex flex-col md:flex-row">
@@ -34,6 +37,7 @@ export default function ClientLayout() {
           <img src="/rs-logo.png" alt="Royal Square Financial Logo" className="h-8 w-auto object-contain" />
         </Link>
         <div className="flex items-center gap-2">
+          {!desktop && <NotificationBell />}
           <DarkModeToggle />
           <button
             type="button"
@@ -76,6 +80,7 @@ export default function ClientLayout() {
           ))}
         </nav>
         <div className="p-4 border-t border-charcoal-200 dark:border-charcoal-700 flex items-center justify-between">
+          {desktop && <NotificationBell />}
           <DarkModeToggle />
           <button
             type="button"

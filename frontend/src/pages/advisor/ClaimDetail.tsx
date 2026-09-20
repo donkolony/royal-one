@@ -4,7 +4,9 @@ import { useParams, Link } from "react-router-dom";
 import { useStaffBase } from "@/lib/staff";
 import { api } from "@/lib/api";
 import { Claim, Page, EmailThread } from "@/lib/types";
-import { Skeleton, ErrorBanner } from "@/components/ui";
+import { Skeleton, ErrorBanner, DemoBadge } from "@/components/ui";
+import { useMeta } from "@/lib/meta";
+import { useEffect } from "react";
 import EmailDraftModal from "@/components/advisor/EmailDraftModal";
 import { Mail, AlertCircle } from "lucide-react";
 
@@ -21,7 +23,7 @@ export default function AdvisorClaimDetail() {
   } = useQuery<Claim>({
     queryKey: ["claim", claimId],
     queryFn: () => api.get<Claim>(`/claims/${claimId}`),
-    refetchInterval: 30000,
+    refetchInterval: 5000, // the client's screen and this one are the same record, so both stay live
     enabled: !!claimId,
   });
 
@@ -35,7 +37,7 @@ export default function AdvisorClaimDetail() {
   const postTransition = useMutation({
     mutationFn: (targetStatus: string) =>
       api.post(`/claims/${claimId}/transitions`, {
-        target_status: targetStatus,
+        to_status: targetStatus,
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["claim"] }),
   });
@@ -46,6 +48,21 @@ export default function AdvisorClaimDetail() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["claim"] }),
   });
 
+  const { data: meta } = useMeta();
+  const [autoPlay, setAutoPlay] = useState(false);
+  const insurerStep = useMutation({
+    mutationFn: () => api.post(`/demo/insurer-step`, { claim_id: claimId }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["claim"] });
+      void queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    },
+  });
+  // DEMO ONLY: let the simulated insurer walk the claim forward every few seconds, so the audience watches both screens move.
+  useEffect(() => {
+    if (!autoPlay || !meta?.demo_mode) return;
+    const t = setInterval(() => { if (!insurerStep.isPending) insurerStep.mutate(); }, 6000);
+    return () => clearInterval(t);
+  }, [autoPlay, meta?.demo_mode, insurerStep]);
   const [updateMsg, setUpdateMsg] = useState("");
   const [updateType, setUpdateType] = useState("note");
   const [visibleToClient, setVisibleToClient] = useState(false);
@@ -102,24 +119,35 @@ export default function AdvisorClaimDetail() {
             Actions:
           </span>
           {claim.allowed_transitions.map((t: any) => {
-            const needsClaimNum =
-              t.target_status === "registered" && !claim.claim_number;
+            const needsClaimNum = (t.requires?.length ?? 0) > 0;
             return (
               <button
-                key={t.target_status}
+                key={t.to_status}
                 onClick={() => {
                   if (needsClaimNum) return;
                   if (confirm(`Move claim to ${t.label}?`))
-                    postTransition.mutate(t.target_status);
+                    postTransition.mutate(t.to_status);
                 }}
                 disabled={needsClaimNum || postTransition.isPending}
-                title={needsClaimNum ? "Claim number required" : ""}
+                title={needsClaimNum ? "Record the insurer's claim number first" : ""}
                 className={`px-4 py-2 text-sm font-medium rounded ${needsClaimNum ? "bg-charcoal-200 text-charcoal-400 cursor-not-allowed" : "bg-brand-500 text-white hover:bg-brand-600"}`}
               >
                 {t.label}
               </button>
             );
           })}
+        </div>
+      )}
+
+      {meta?.demo_mode && !["completed", "closed", "draft"].includes(claim.status) && (
+        <div className="rounded-lg border border-accent-200 bg-accent-50/60 dark:bg-accent-900/20 p-4 flex flex-wrap items-center gap-3">
+          <DemoBadge>Demo</DemoBadge>
+          <span className="text-sm text-charcoal-700">The insurer is simulated. Use it to move this claim and watch the client's screen update by itself.</span>
+          <button onClick={() => insurerStep.mutate()} disabled={insurerStep.isPending} className="px-3 py-1.5 bg-accent-500 text-white text-sm font-medium rounded hover:bg-accent-600 disabled:opacity-50">
+            Simulate insurer step
+          </button>
+          <label className="flex items-center gap-1.5 text-sm text-charcoal-700"><input type="checkbox" checked={autoPlay} onChange={(e) => setAutoPlay(e.target.checked)} /> Auto-play every 6 seconds</label>
+          {insurerStep.error ? <span className="text-xs text-accent-700">{(insurerStep.error as Error).message}</span> : null}
         </div>
       )}
 
@@ -316,7 +344,7 @@ export default function AdvisorClaimDetail() {
                     >
                       <option value="note">Internal Note</option>
                       <option value="repair_update">Repair Update</option>
-                      <option value="general_update">General Update</option>
+                      <option value="note">Note</option>
                     </select>
                     <label className="flex items-center gap-1 text-xs text-charcoal-600">
                       <input

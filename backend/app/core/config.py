@@ -49,6 +49,11 @@ class Settings(BaseSettings):
 
     email_provider: Literal["mock", "gmail"] = "mock"
 
+    # Demo controls (simulated insurer, "reset demo"). Off unless asked for, and refused in production.
+    demo_mode: bool = False
+    # A retention rule is a policy decision, not a fact from this codebase: 5 is a PLACEHOLDER for counsel or the compliance officer.
+    retention_years: int = Field(default=5, ge=1, le=50)
+
     allowed_origins: str = "http://localhost:5173"
     max_upload_bytes: int = 10 * 1024 * 1024
     max_attachments_per_claim: int = 40
@@ -116,6 +121,8 @@ class Settings(BaseSettings):
     def _sanity(self) -> "Settings":
         if self.email_provider == "gmail":
             raise ValueError("EMAIL_PROVIDER=gmail is reserved and not built; use 'mock'.")
+        if self.demo_mode and self.environment.lower() in ("production", "prod"):
+            raise ValueError("DEMO_MODE must be off when ENVIRONMENT=production: it enables a data reset and a simulated insurer.")
         return self
 
 

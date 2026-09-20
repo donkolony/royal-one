@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
 import { get } from "./api";
 
@@ -26,4 +27,19 @@ export function useAct<TIn = void, TOut = unknown>(fn: (input: TIn) => Promise<T
       onDone?.(out);
     },
   });
+}
+
+
+/** True while the viewport matches. Used to mount ONE copy of a widget that appears in both a phone header and a desktop sidebar. */
+export function useMediaQuery(query: string): boolean {
+  const get = () => (typeof window !== "undefined" && typeof window.matchMedia === "function" ? window.matchMedia(query).matches : false);
+  const [matches, setMatches] = useState(get);
+  useEffect(() => {
+    const m = window.matchMedia(query);
+    const on = () => setMatches(m.matches);
+    on();
+    m.addEventListener("change", on);
+    return () => m.removeEventListener("change", on);
+  }, [query]);
+  return matches;
 }

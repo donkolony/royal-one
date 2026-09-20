@@ -1470,6 +1470,25 @@ Owner only (`403` for everyone else). Every tile answers "where is money made or
 
 `GET /clients/{id}/health` (staff, in scope): `{score 0-100, band: healthy|watch|at_risk, components[{key,label,weight,value,points,detail}], last_contact_at, days_since_contact, weakest, formula, at_risk_below}`. The formula is simple and printed: 30 x recent contact + 25 x review up to date + 20 x goals on track + 15 x documents valid + 10 x no stuck claims.
 
+### 5.18 Workflows and notifications
+
+**One config, read by an engine.** `backend/app/domain/workflows.py` defines the motor claim and every client request in the same vocabulary: steps, required documents, validation rules (the request `fields`), status transitions with who may make them, and who is notified. `GET /workflows` serves it so a screen can render itself from it. `GET /requests/types` is the request half of the same data and gained `description`, `steps`, `documents`, `requires_identity`, `insurer_forward` and `sla_days`.
+
+**Adding a simple request type is a config entry**: its fields and an entry in `_REQUEST_META`. No new page (the client form is rendered from `fields`), no new endpoint, no migration (`requests.type` is validated against the config, not a database CHECK; a test adds one through the API).
+
+The claim's `allowed_transitions` (section 5.10) now come from the same config that enforces them.
+
+**Notifications are in-app only.** A status change writes one notification per person to tell (the client and/or their adviser), from the transition's `notify` list in the config: an adviser moving a claim tells the client; a client submitting a claim or a request tells their adviser. There is no email, SMS or push. `GET /notifications?unread=true` returns `{items[{id, kind, title, body, link:{resource, id}, client_id, created_at, read_at}], unread_count}` for the caller only. Screens poll it (about every 8 seconds).
+
+A request now has a **timeline** (`timeline[]` on `GET /requests/{id}`, same shape as a claim's events, `visible_to_client` respected): `created`, `forwarded` (to the simulated provider), `status_changed`, `insurer_update`, `note`.
+
+**Demo controls** (`DEMO_MODE=true`; otherwise both answer `404 not_found` and the server refuses `DEMO_MODE` with `ENVIRONMENT=production`; `GET /meta` returns `demo_mode`):
+
+| Endpoint | Notes |
+|---|---|
+| `POST /demo/insurer-step` | Body `{claim_id}` or `{request_id}`. The **simulated** insurer (or provider) takes its next step: registers the claim with a `SIM-` number, moves it through assessment, quotes, authorisation, repair and completion; for a request marked `insurer_forward` it acknowledges and then responds. It uses the same code path as an adviser's status change, so the timeline, notifications and audit entry are produced by the engine. Events say "simulated" and have no actor. `409` when it has nothing left to do. An adviser reaches their own clients' items; the owner reaches all. |
+| `POST /demo/reset` | Owner only. Puts every data table back to the seeded state (the approved-document library is kept). |
+
 ---
 
 ## 6. End-to-end flows
@@ -1653,6 +1672,12 @@ Until the backend is deployed, the JSON examples in Section 5 can be used as fix
 | 84 | GET | `/owner/business-health` | owner | P0 |
 | 85 | GET | `/owner/drilldown` | owner | P0 |
 | 86 | GET | `/clients/{client_id}/health` | staff | P1 |
+| 87 | GET | `/workflows` | any | P0 |
+| 88 | GET | `/notifications` | any | P0 |
+| 89 | POST | `/notifications/read-all` | any | P1 |
+| 90 | POST | `/notifications/{notification_id}/read` | any | P1 |
+| 91 | POST | `/demo/insurer-step` | staff | P0 (demo) |
+| 92 | POST | `/demo/reset` | owner | P0 (demo) |
 
 All paths except `/health` are relative to `/api/v1`.
 
@@ -1663,6 +1688,7 @@ All paths except `/health` are relative to `/api/v1`.
 | Version | Date | Change |
 |---|---|---|
 | 0.1 | 2026-09-19 | First draft of the contract from PRD v1.0. Not yet implemented. |
+| 0.5.0 | 2026-09-20 | Workflow engine (section 5.18, endpoints 87 to 92): `GET /workflows`, in-app notifications, request timelines, `GET /requests/types` extra keys, `GET /meta` `demo_mode`, demo controls. `POST /requests` accepts any type in the workflow config. Additive. |
 | 0.4.0 | 2026-09-20 | Business Health (section 5.17, endpoints 84 to 86) and the compliance data model (identity, consents, advice records) behind the compliance score. Additive. |
 | 0.3.0 | 2026-09-20 | Opportunity Radar (section 5.16, endpoints 72 to 83): `client` gains optional `dependants` and `annual_income_cents`; policy `category` gains `disability`; reminders may relate to an `opportunity`. Demo cast renamed to South African names (ids and emails unchanged). Additive. |
 | 0.2.0 | 2026-09-20 | Revenue & Compliance work, step 1: an `owner` role (`GET /me` returns `owner: {id}` for it; the owner reads clients and the claims pipeline like an adviser); the audit trail (`/audit`, `/audit/export`, `/audit/verify`, section 5.15); `GET /documents/{id}/url` and every write are logged. Additive only. |

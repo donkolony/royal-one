@@ -19,6 +19,8 @@ import {
   Lock,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { NotificationBell } from "../components/NotificationBell";
+import { useMediaQuery } from "../lib/hooks";
 import { useAuth } from "../context/AuthContext";
 import type { Role } from "../lib/types";
 
@@ -60,6 +62,7 @@ export default function StaffLayout() {
   const location = useLocation();
   const { profile, signOut } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const desktop = useMediaQuery("(min-width: 1024px)");
   const role: Role = profile?.role ?? "advisor";
   const navItems = navFor(role);
   const home = role === "owner" ? "/owner" : "/advisor";
@@ -85,6 +88,8 @@ export default function StaffLayout() {
           <img src="/rs-logo.png" alt="Royal Square Financial Logo" className="h-8 w-auto object-contain mr-2" />
           <span className="text-charcoal-900 dark:text-white font-bold tracking-tight">{portal} Portal</span>
         </Link>
+        <div className="flex items-center gap-1">
+        {!desktop && <NotificationBell />}
         <button
           type="button"
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -95,6 +100,7 @@ export default function StaffLayout() {
         >
           {mobileMenuOpen ? <X className="w-6 h-6" aria-hidden="true" /> : <Menu className="w-6 h-6" aria-hidden="true" />}
         </button>
+        </div>
       </header>
 
       {/* Sidebar Overlay (Mobile) */}
@@ -130,9 +136,12 @@ export default function StaffLayout() {
         </div>
 
         {profile && (
-          <div className="px-6 py-3 border-b border-charcoal-100 dark:border-charcoal-700">
-            <p className="text-sm font-medium text-charcoal-800 dark:text-charcoal-100 truncate">{profile.full_name}</p>
-            <p className="text-xs text-charcoal-500 dark:text-charcoal-400 truncate">{profile.email}</p>
+          <div className="px-6 py-3 border-b border-charcoal-100 dark:border-charcoal-700 flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-charcoal-800 dark:text-charcoal-100 truncate">{profile.full_name}</p>
+              <p className="text-xs text-charcoal-500 dark:text-charcoal-400 truncate">{profile.email}</p>
+            </div>
+            {desktop && <NotificationBell />}
           </div>
         )}
 

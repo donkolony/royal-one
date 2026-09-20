@@ -18,7 +18,8 @@ from app.core.errors import bad_state, field_error, not_found, validation, valid
 from app.core.http import Paging, order_by
 from app.domain import constants as C
 from app.schemas.models import RequestCreate, RequestPatch
-from app.services import attachments as att, audit
+from app.domain import workflows as W
+from app.services import attachments as att, audit, workflow
 from app.services.common import not_found_logged, resolve_client_filter
 from app.storage.base import Storage
 
@@ -170,7 +171,7 @@ def request_object(row: Row, role: str) -> Dict[str, Any]:
         "id": row["id"], "type": row["type"], "type_label": d["label"], "status": row["status"],
         "client": {"id": row["client_id"], "full_name": row["client_name"]},
         "payload": _payload_for(row, role), "client_note": row["client_note"], "adviser_response": row["adviser_response"],
-        "requires_verification": d["requires_verification"],
+        "requires_verification": d["requires_verification"], "insurer_forward": d["insurer_forward"],
         "submitted_at": row["submitted_at"], "updated_at": row["updated_at"], "completed_at": row["completed_at"],
     }
 
@@ -186,6 +187,7 @@ def _load(conn: psycopg.Connection, p: Principal, request_id: UUID, lock: bool =
 def _detail(conn: psycopg.Connection, settings: Settings, storage: Storage, p: Principal, row: Row) -> Dict[str, Any]:
     out = request_object(row, p.role)
     out["attachments"] = att.list_for(conn, settings, storage, request_id=row["id"])
+    out["timeline"] = workflow.request_timeline(conn, row["id"], client_view=p.is_client)
     return out
 
 
@@ -204,6 +206,12 @@ def create(conn: psycopg.Connection, settings: Settings, storage: Storage, p: Pr
     )
     audit.record(conn, p, "request.created", "request", row["id"], client_id=p.id, summary=f"Submitted a request: {type_def['label']}",
                  details={"type": body.type})
+    workflow.add_request_event(conn, row["id"], "created", "Request received", to_status="submitted", actor_id=p.id)
+    if type_def["insurer_forward"]:
+        workflow.add_request_event(conn, row["id"], "forwarded", "Passed to your product provider (simulated)",
+                                   message="Demo: no real provider is contacted in this prototype.", to_status="submitted")
+    workflow.tell(conn, W.REQUEST_NOTIFY_ON_CREATE, p.id, {"label": type_def["label"], "client": p.full_name}, kind="new_request",
+                  link={"resource": "request", "id": row["id"]})
     return _detail(conn, settings, storage, p, _load(conn, p, row["id"]))
 
 
@@ -244,6 +252,8 @@ def patch_request(conn: psycopg.Connection, settings: Settings, storage: Storage
         raise validation("status", "invalid_value", "status cannot be cleared.")
     if data.get("status") == row["status"]:
         raise bad_state(f"This request is already {row['status']}.")
+    if new_status != row["status"] and not workflow.request_move_allowed(row["status"], new_status):
+        raise bad_state(f"A request that is '{row['status']}' cannot move to '{new_status}'.")
     response = data["adviser_response"] if "adviser_response" in data else row["adviser_response"]
     if new_status == "declined" and not (response and response.strip()):
         raise validation("adviser_response", "required", "Explain why the request is declined.")
@@ -256,6 +266,16 @@ def patch_request(conn: psycopg.Connection, settings: Settings, storage: Storage
     audit.record(conn, p, "request.updated", "request", request_id, client_id=row["client_id"],
                  summary=f"Set a {C.REQUEST_TYPE_BY_NAME[row['type']]['label']} request to {new_status}",
                  details={"from": row["status"], "to": new_status, "responded": bool(response)})
+    label = C.REQUEST_TYPE_BY_NAME[row["type"]]["label"]
+    link = {"resource": "request", "id": request_id}
+    if new_status != row["status"]:
+        status_label = next(s["client_label"] for s in W.REQUEST_STATUSES if s["value"] == new_status)
+        workflow.add_request_event(conn, request_id, "status_changed", status_label, message=response if "adviser_response" in data else None,
+                                   from_status=row["status"], to_status=new_status, actor_id=p.id)
+        workflow.tell(conn, workflow.request_transition_notices(row["status"], new_status), row["client_id"], {"label": label}, kind="request_update", link=link)
+    elif "adviser_response" in data and response:
+        workflow.add_request_event(conn, request_id, "note", "Message from your adviser", message=response, actor_id=p.id)
+        workflow.tell_one(conn, "client", row["client_id"], kind="request_update", title="Your adviser replied", body=f"{label}.", link=link)
     return _detail(conn, settings, storage, p, _load(conn, p, request_id))
 
 
@@ -273,3 +293,34 @@ def upload_attachment(
                  summary=f"Uploaded a {kind} to a {C.REQUEST_TYPE_BY_NAME[row['type']]['label']} request",
                  details={"request_id": request_id, "kind": kind, "content_type": obj["content_type"], "size_bytes": obj["size_bytes"]})
     return obj
+
+
+# ------------------------------------------------------------------------------------------ simulated provider
+_PROVIDER_STEPS = {
+    "submitted": ("in_progress", "Provider acknowledged (simulated)", "Demo provider: request received.", None),
+    "in_progress": ("completed", "Provider responded (simulated)", "Demo provider: done. Your adviser will share the result with you.",
+                    "Completed by the simulated provider. Your adviser will share the result with you."),
+}
+
+
+def provider_step(conn: psycopg.Connection, settings: Settings, storage: Storage, p: Principal, request_id: UUID) -> Dict[str, Any]:
+    """DEMO ONLY (behind the DEMO_MODE flag): the simulated provider answers a request that is marked `insurer_forward`.
+    Uses the same events, notifications and audit as a real status change, so the client's screen updates by itself."""
+    row = _load(conn, p, request_id, lock=True)
+    d = C.REQUEST_TYPE_BY_NAME[row["type"]]
+    if not d["insurer_forward"]:
+        raise bad_state("This request is handled by your adviser, not by a product provider.")
+    step = _PROVIDER_STEPS.get(row["status"])
+    if step is None:
+        raise bad_state(f"The simulated provider has nothing left to do for a request that is {row['status']}.")
+    to, title, message, response = step
+    execute(conn, "update requests set status = %s, adviser_response = coalesce(%s, adviser_response), "
+                  "completed_at = case when %s = 'completed' then now() else completed_at end, updated_at = now() where id = %s",
+            (to, response, to, request_id))
+    workflow.add_request_event(conn, request_id, "insurer_update", title, message=message, from_status=row["status"], to_status=to)
+    audit.record(conn, None, "request.status_changed", "request", request_id, client_id=row["client_id"],
+                 summary=f"Simulated provider moved a {d['label']} request to {to}", details={"from": row["status"], "to": to, "simulated": True})
+    link = {"resource": "request", "id": request_id}
+    workflow.tell_one(conn, "client", row["client_id"], kind="request_update", title=title, body=f"{d['label']}.", link=link)
+    workflow.tell_one(conn, "advisor", row["client_id"], kind="request_update", title=title, body=f"{d['label']} for {row['client_name']}.", link=link)
+    return _detail(conn, settings, storage, p, _load(conn, p, request_id))

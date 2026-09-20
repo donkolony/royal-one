@@ -100,3 +100,30 @@ export interface AuditEntry {
   summary: string; details: Record<string, unknown>; ip: string | null; user_agent: string | null; request_id: string | null; hash: string;
 }
 export type AuditPage = Page<AuditEntry>;
+
+// ---- Workflows, requests and notifications (5.18)
+export interface RequestField {
+  name: string; label: string; type: string; required?: boolean; max_length?: number; pattern?: string; options?: string[];
+  min?: number; max?: number; ref?: string; min_items?: number; max_items?: number; item_fields?: RequestField[]; not_before?: string; not_in_past?: boolean;
+}
+export interface WorkflowStep { key: string; label: string }
+export interface WorkflowDoc { kind: string; label: string; required: boolean; reuse_from_vault: string | null }
+export interface RequestTypeDef {
+  type: string; label: string; description: string; requires_verification: boolean; requires_identity: boolean; insurer_forward: boolean;
+  sla_days: number; max_attachments: number; fields: RequestField[]; steps: WorkflowStep[]; documents: WorkflowDoc[];
+}
+export interface TimelineEvent {
+  id: UUID; type: string; title: string; message: string | null; visible_to_client: boolean; from_status: string | null; to_status: string | null;
+  created_at: ISODateTime; actor: { id: UUID; full_name: string | null; role: string } | null;
+}
+export type RequestState = "submitted" | "in_progress" | "completed" | "declined";
+export interface RequestItem {
+  id: UUID; type: string; type_label: string; status: RequestState; client: { id: UUID; full_name: string }; payload: Record<string, unknown>;
+  client_note: string | null; adviser_response: string | null; insurer_forward: boolean; requires_verification: boolean;
+  submitted_at: ISODateTime; updated_at: ISODateTime; completed_at: ISODateTime | null; timeline?: TimelineEvent[];
+}
+export interface AppNotification {
+  id: UUID; kind: string; title: string; body: string | null; link: { resource: string; id: UUID } | null; client_id: UUID | null;
+  created_at: ISODateTime; read_at: ISODateTime | null;
+}
+export interface NotificationList { items: AppNotification[]; unread_count: number }

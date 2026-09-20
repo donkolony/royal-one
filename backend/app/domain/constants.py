@@ -3,31 +3,15 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-# ------------------------------------------------------------------------------------------- claims
-CLAIM_STATUSES: List[Dict[str, Any]] = [
-    {"value": "draft", "order": 0, "client_label": "Not sent yet", "advisor_label": "Draft (not visible)"},
-    {"value": "submitted", "order": 1, "client_label": "Sent to Royal Square", "advisor_label": "Submitted"},
-    {"value": "registered", "order": 2, "client_label": "Registered with your insurer", "advisor_label": "Registered (claim no. issued)"},
-    {"value": "assessment", "order": 3, "client_label": "Vehicle assessment", "advisor_label": "Assessment"},
-    {"value": "quotes", "order": 4, "client_label": "Repair quotes", "advisor_label": "Quotes with insurer"},
-    {"value": "authorised", "order": 5, "client_label": "Repairs approved", "advisor_label": "Authorised"},
-    {"value": "in_repair", "order": 6, "client_label": "Being repaired", "advisor_label": "In repair"},
-    {"value": "completed", "order": 7, "client_label": "Repairs finished", "advisor_label": "Completed, awaiting client sign-off"},
-    {"value": "closed", "order": 8, "client_label": "Closed", "advisor_label": "Closed"},
-]
-STATUS_ORDER: List[str] = [s["value"] for s in CLAIM_STATUSES]
-STATUS_BY_VALUE: Dict[str, Dict[str, Any]] = {s["value"]: s for s in CLAIM_STATUSES}
-PIPELINE_STATUSES = ["submitted", "registered", "assessment", "quotes", "authorised", "in_repair", "completed"]
+from app.domain import workflows as W
 
-FORWARD_LABELS = {
-    "registered": "Mark as registered",
-    "assessment": "Move to assessment",
-    "quotes": "Move to quotes",
-    "authorised": "Mark as authorised",
-    "in_repair": "Start repair",
-    "completed": "Mark repairs completed",
-    "closed": "Close claim",
-}
+# ------------------------------------------------------------------------------------------- claims
+# The status list, labels and transitions live in domain/workflows.py (the workflow engine's single config).
+CLAIM_STATUSES: List[Dict[str, Any]] = W.CLAIM_STATUSES
+STATUS_ORDER: List[str] = [s["value"] for s in CLAIM_STATUSES]
+STATUS_BY_VALUE: Dict[str, Dict[str, Any]] = W.STATUS_BY_VALUE
+PIPELINE_STATUSES = ["submitted", "registered", "assessment", "quotes", "authorised", "in_repair", "completed"]
+FORWARD_LABELS = {t.to_status: t.label for t in W.MOTOR_CLAIM_TRANSITIONS if t.actor == "advisor" and t.direction == "forward"}
 
 HIRE_CAR_STATUSES = ["not_required", "requested", "arranged", "delivered", "return_arranged", "returned"]
 HIRE_CAR_LABELS = {
@@ -106,77 +90,8 @@ DOCUMENT_CATEGORIES = ["policy_wording", "internal_process", "company_policy", "
 
 # ---------------------------------------------------------------------------------------- requests
 # Field types: string, text, date, integer, boolean, enum, uuid, string_list, date_list, object_list.
-REQUEST_TYPES: List[Dict[str, Any]] = [
-    {
-        "type": "address_change", "label": "Change of address", "requires_verification": False, "max_attachments": 3,
-        "fields": [
-            {"name": "address_line_1", "label": "Street address", "type": "string", "required": True, "max_length": 120},
-            {"name": "address_line_2", "label": "Complex / building", "type": "string", "required": False, "max_length": 120},
-            {"name": "suburb", "label": "Suburb", "type": "string", "required": True, "max_length": 80},
-            {"name": "city", "label": "City", "type": "string", "required": True, "max_length": 80},
-            {"name": "postal_code", "label": "Postal code", "type": "string", "required": True, "pattern": r"^[0-9]{4}$"},
-            {"name": "effective_date", "label": "Effective from", "type": "date", "required": False},
-        ],
-    },
-    {
-        "type": "bank_details_change", "label": "Change of bank details", "requires_verification": True, "max_attachments": 3,
-        "fields": [
-            {"name": "account_holder", "label": "Account holder", "type": "string", "required": True, "max_length": 120},
-            {"name": "bank_name", "label": "Bank", "type": "string", "required": True, "max_length": 80},
-            {"name": "account_type", "label": "Account type", "type": "enum", "required": True, "options": ["cheque", "savings", "transmission", "other"]},
-            {"name": "account_number", "label": "Account number", "type": "string", "required": True, "pattern": r"^[0-9]{6,16}$"},
-            {"name": "branch_code", "label": "Branch code", "type": "string", "required": True, "pattern": r"^[0-9]{6}$"},
-            {"name": "effective_date", "label": "Effective from", "type": "date", "required": False},
-        ],
-    },
-    {
-        "type": "policy_document", "label": "Request a policy document", "requires_verification": False, "max_attachments": 0,
-        "fields": [
-            {"name": "policy_id", "label": "Policy", "type": "uuid", "required": True, "ref": "policy"},
-            {"name": "document_kind", "label": "Document", "type": "enum", "required": True, "options": ["policy_schedule", "policy_wording", "certificate", "other"]},
-        ],
-    },
-    {
-        "type": "border_letter", "label": "Request a border letter", "requires_verification": False, "max_attachments": 0,
-        "fields": [
-            {"name": "policy_id", "label": "Vehicle policy", "type": "uuid", "required": True, "ref": "motor_policy"},
-            {"name": "destination_countries", "label": "Countries you will travel to", "type": "string_list", "required": True, "min_items": 1, "max_items": 10, "max_length": 80},
-            {"name": "travel_from", "label": "Travel from", "type": "date", "required": True},
-            {"name": "travel_to", "label": "Travel to", "type": "date", "required": True, "not_before": "travel_from"},
-        ],
-    },
-    {
-        "type": "irp5", "label": "Request an IRP5", "requires_verification": False, "max_attachments": 0,
-        "fields": [
-            {"name": "provider_name", "label": "Investment company", "type": "string", "required": True, "max_length": 120},
-            {"name": "tax_year", "label": "Tax year", "type": "integer", "required": True, "min": 1990, "max": 2100},
-            {"name": "policy_id", "label": "Policy", "type": "uuid", "required": False, "ref": "policy"},
-        ],
-    },
-    {
-        "type": "consultation", "label": "Request a consultation", "requires_verification": False, "max_attachments": 0,
-        "fields": [
-            {"name": "preferred_dates", "label": "Preferred dates", "type": "date_list", "required": True, "min_items": 1, "max_items": 3, "not_in_past": True},
-            {"name": "mode", "label": "How would you like to meet?", "type": "enum", "required": True, "options": ["in_person", "phone", "video"]},
-            {"name": "topic", "label": "What would you like to discuss?", "type": "string", "required": True, "max_length": 200},
-        ],
-    },
-    {
-        "type": "client_information", "label": "Send financial information", "requires_verification": False, "max_attachments": 5,
-        "fields": [
-            {"name": "statement_type", "label": "Statement", "type": "enum", "required": True, "options": ["balance_sheet", "income_statement"]},
-            {
-                "name": "items", "label": "Items", "type": "object_list", "required": True, "min_items": 1, "max_items": 50,
-                "item_fields": [
-                    {"name": "label", "label": "Description", "type": "string", "required": True, "max_length": 120},
-                    {"name": "type", "label": "Type", "type": "enum", "required": True, "options": ["asset", "liability", "income", "expense"]},
-                    {"name": "amount_cents", "label": "Amount (cents)", "type": "integer", "required": True, "min": 1},
-                    {"name": "frequency", "label": "Frequency", "type": "enum", "required": False, "options": ["monthly", "annual", "one_off"]},
-                ],
-            },
-        ],
-    },
-]
+# The definitions are in domain/workflows.py; this is the same list, with its extra keys (steps, documents, ...).
+REQUEST_TYPES: List[Dict[str, Any]] = W.request_types()
 REQUEST_TYPE_BY_NAME = {t["type"]: t for t in REQUEST_TYPES}
 
 # ------------------------------------------------------------------------------------------- email

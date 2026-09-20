@@ -283,8 +283,16 @@ class ReviewBody(Body):
 
 # --------------------------------------------------------------------------------- requests
 class RequestCreate(Body):
-    type: Literal[tuple(t["type"] for t in C.REQUEST_TYPES)]  # type: ignore[valid-type]
+    type: str = Field(min_length=1, max_length=60)      # validated against the workflow config, so a new type needs no code change
     payload: Dict[str, Any]
+
+    @field_validator("type")
+    @classmethod
+    def _known_type(cls, v: str) -> str:
+        if v not in C.REQUEST_TYPE_BY_NAME:
+            raise ValueError("Unknown request type.")
+        return v
+
     client_note: Optional[str] = Field(default=None, max_length=1000)
 
 

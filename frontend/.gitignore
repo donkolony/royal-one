@@ -30,6 +30,9 @@ Thumbs.db
 
 # Testing / Coverage
 coverage/
+test-results/
+playwright-report/
+*.tsbuildinfo
 
 # Temporary files
 *.tmp

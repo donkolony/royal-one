@@ -1,0 +1,32 @@
+{
+  "name": "royal-square-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc -b && vite build",
+    "format": "prettier --write src tests index.html *.json *.ts",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@hookform/resolvers": "^5.2.2",
+    "@tailwindcss/vite": "^4.1.13",
+    "@tanstack/react-query": "^5.90.2",
+    "lucide-react": "^0.468.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-hook-form": "^7.63.0",
+    "react-router-dom": "^7.9.1",
+    "tailwindcss": "^4.1.13"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.3",
+    "prettier": "^3.9.8",
+    "typescript": "~5.9.2",
+    "vite": "^7.1.7"
+  }
+}

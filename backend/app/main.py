@@ -13,7 +13,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from psycopg_pool import ConnectionPool
 
-from app.api.v1 import advisor_routes, claims_routes, core_routes
+from app.api.v1 import advisor_routes, audit_routes, claims_routes, core_routes
 from app.core import clock
 from app.core.auth import LocalHS256Verifier, SupabaseTokenVerifier, TokenVerifier
 from app.core.config import Settings, get_settings, validate_settings
@@ -113,7 +113,7 @@ def create_app(
         # Deliberately touches nothing else, so it stays fast when dependencies are down.
         return ok({"status": "ok", "version": VERSION, "time": clock.now()})
 
-    for router in (core_routes.router, claims_routes.router, advisor_routes.router):
+    for router in (core_routes.router, claims_routes.router, advisor_routes.router, audit_routes.router):
         app.include_router(router, prefix="/api/v1")
     return app
 

@@ -11,6 +11,7 @@ from app.core.db import Row, fetch_all, fetch_one
 from app.core.errors import not_found, validation
 from app.core.http import Paging, order_by
 from app.schemas.models import ClientPatch, ProfilePatch
+from app.services import audit
 from app.services.common import person_ref, require_client_in_scope, update_row
 
 
@@ -37,7 +38,7 @@ def get_me(conn: psycopg.Connection, p: Principal) -> Dict[str, Any]:
                 "client_since": c["client_since"],
                 "last_annual_review_date": c["last_annual_review_date"],
             }
-    return {**prof, "client": client, "advisor": {"id": p.id} if p.is_advisor else None}
+    return {**prof, "client": client, "advisor": {"id": p.id} if p.is_advisor else None, "owner": {"id": p.id} if p.is_owner else None}
 
 
 def patch_me(conn: psycopg.Connection, p: Principal, body: ProfilePatch) -> Dict[str, Any]:
@@ -94,6 +95,7 @@ def get_client(conn: psycopg.Connection, p: Principal, client_id: UUID) -> Dict[
     row = fetch_one(conn, f"{_CLIENT_SELECT} where c.id = %s", (client_id,))
     if row is None:
         raise not_found("Client")
+    audit.record_view(conn, p, "client.viewed", "client", client_id, client_id=client_id, summary=f"Opened the client file for {row['full_name']}")
     return _client_detail(row)
 
 
@@ -106,4 +108,6 @@ def patch_client(conn: psycopg.Connection, p: Principal, client_id: UUID, body: 
     cl = {k: fields[k] for k in ("date_of_birth", "drivers_licence_expiry", "client_since", "last_annual_review_date") if k in fields}
     update_row(conn, "profiles", client_id, prof)
     update_row(conn, "clients", client_id, cl)
+    audit.record(conn, p, "client.updated", "client", client_id, client_id=client_id,
+                 summary="Updated the client's details", details={"fields": sorted(fields)})
     return get_client(conn, p, client_id)

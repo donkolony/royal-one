@@ -20,7 +20,7 @@ from app.domain import constants as C
 from app.email import service as email_service
 from app.llm.base import LLMRouter, Message
 from app.schemas.models import DraftRequest
-from app.services import claims as claims_svc
+from app.services import audit, claims as claims_svc
 
 _IDENT = re.compile(r"\b[A-Z]{1,5}[-/ ]?\d[\w/\-]{2,}\b")
 
@@ -134,6 +134,9 @@ def generate(conn: psycopg.Connection, llm: LLMRouter, p: Principal, body: Draft
         warnings.append(f"Removed '{token}' because it is not in the claim record. Check the draft.")
 
     used = ["client.full_name"] + [f"claim.{k}" for k in facts if k not in ("adviser_name", "client_name")]
+    audit.record(conn, p, "ai.email_draft", "claim", body.claim_id, client_id=row["client_id"],
+                 summary=f"Generated an AI email draft for claim {row['reference']} (not sent)",
+                 details={"purpose": body.purpose, "provider": result.provider, "model": result.model, "warnings": len(warnings)})
     return {
         "draft": {"to": to, "cc": [], "subject": subject.strip(), "body_text": body_text.strip()},
         "context_used": {"claim_fields": used, "thread_message_ids": [m["id"] for m in thread["messages"]] if thread else []},

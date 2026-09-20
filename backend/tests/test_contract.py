@@ -32,8 +32,9 @@ def app(api):
     return api.c.app
 
 
-def test_the_index_lists_68_endpoints():
-    assert len(documented()) == 68
+def test_the_index_has_no_duplicate_rows():
+    rows = re.findall(r"^\| (\d+) \| (?:GET|POST|PATCH|PUT|DELETE) \|", API_MD, re.M)
+    assert len(rows) == len(set(rows)) == len(documented()) and len(rows) >= 68
 
 
 def test_every_documented_endpoint_is_implemented(app):
@@ -75,4 +76,4 @@ def test_static_routes_are_registered_before_parameterised_siblings(app):
 
 
 def test_the_openapi_route_count_matches_the_index(app):
-    assert len(implemented(app)) == 68
+    assert len(implemented(app)) == len(documented())

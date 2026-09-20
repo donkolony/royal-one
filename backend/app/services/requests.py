@@ -18,8 +18,8 @@ from app.core.errors import bad_state, field_error, not_found, validation, valid
 from app.core.http import Paging, order_by
 from app.domain import constants as C
 from app.schemas.models import RequestCreate, RequestPatch
-from app.services import attachments as att
-from app.services.common import resolve_client_filter
+from app.services import attachments as att, audit
+from app.services.common import not_found_logged, resolve_client_filter
 from app.storage.base import Storage
 
 TERMINAL = ("completed", "declined")
@@ -179,7 +179,7 @@ def _load(conn: psycopg.Connection, p: Principal, request_id: UUID, lock: bool =
     sql = f"{_SELECT} where r.id = %s and r.client_id = any(%s)" + (" for update of r" if lock else "")
     row = fetch_one(conn, sql, (request_id, p.client_ids(conn)))
     if row is None:
-        raise not_found("Request")
+        raise not_found_logged(conn, p, "request", request_id, "Request")
     return row
 
 
@@ -202,6 +202,8 @@ def create(conn: psycopg.Connection, settings: Settings, storage: Storage, p: Pr
         "insert into requests (client_id, type, payload, client_note) values (%s,%s,%s,%s) returning id",
         (p.id, body.type, Jsonb(cleaned), body.client_note),
     )
+    audit.record(conn, p, "request.created", "request", row["id"], client_id=p.id, summary=f"Submitted a request: {type_def['label']}",
+                 details={"type": body.type})
     return _detail(conn, settings, storage, p, _load(conn, p, row["id"]))
 
 
@@ -251,6 +253,9 @@ def patch_request(conn: psycopg.Connection, settings: Settings, storage: Storage
         f"update requests set status = %s, adviser_response = %s, handled_by = %s, completed_at = {completed_at}, updated_at = now() where id = %s",
         (new_status, response, p.id, request_id),
     )
+    audit.record(conn, p, "request.updated", "request", request_id, client_id=row["client_id"],
+                 summary=f"Set a {C.REQUEST_TYPE_BY_NAME[row['type']]['label']} request to {new_status}",
+                 details={"from": row["status"], "to": new_status, "responded": bool(response)})
     return _detail(conn, settings, storage, p, _load(conn, p, request_id))
 
 
@@ -262,5 +267,9 @@ def upload_attachment(
     if row["status"] not in ("submitted", "in_progress"):
         raise bad_state("This request is closed.")
     limit = min(settings.max_attachments_per_request, C.REQUEST_TYPE_BY_NAME[row["type"]]["max_attachments"])
-    return att.store(conn, settings, storage, p, request_id=request_id, kind=kind, label=label, filename=filename,
+    obj = att.store(conn, settings, storage, p, request_id=request_id, kind=kind, label=label, filename=filename,
                      declared_type=declared_type, data=data, max_count=limit)
+    audit.record(conn, p, "document.uploaded", "attachment", obj["id"], client_id=row["client_id"],
+                 summary=f"Uploaded a {kind} to a {C.REQUEST_TYPE_BY_NAME[row['type']]['label']} request",
+                 details={"request_id": request_id, "kind": kind, "content_type": obj["content_type"], "size_bytes": obj["size_bytes"]})
+    return obj

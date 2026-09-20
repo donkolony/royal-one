@@ -9,7 +9,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Query
 
 from app.api.deps import settings_dep
-from app.core.auth import Principal, get_principal, require_advisor, require_client
+from app.core.auth import Principal, get_principal, require_advisor, require_client, require_staff
 from app.core.config import Settings
 from app.core.db import get_conn
 from app.core.http import Paging, created, no_content, ok
@@ -59,13 +59,13 @@ def advisor_dashboard(conn: psycopg.Connection = Depends(get_conn), p: Principal
 @router.get("/clients", tags=["clients"])
 def list_clients(
     paging: Paging = Depends(), search: Optional[str] = Query(None, max_length=100), sort: Optional[str] = Query(None),
-    conn: psycopg.Connection = Depends(get_conn), p: Principal = Depends(require_advisor),
+    conn: psycopg.Connection = Depends(get_conn), p: Principal = Depends(require_staff),
 ):
     return ok(clients.list_clients(conn, p, paging, search, sort))
 
 
 @router.get("/clients/{client_id}", tags=["clients"])
-def get_client(client_id: UUID, conn: psycopg.Connection = Depends(get_conn), p: Principal = Depends(require_advisor)):
+def get_client(client_id: UUID, conn: psycopg.Connection = Depends(get_conn), p: Principal = Depends(require_staff)):
     return ok(clients.get_client(conn, p, client_id))
 
 
@@ -75,7 +75,7 @@ def patch_client(client_id: UUID, body: ClientPatch, conn: psycopg.Connection = 
 
 
 @router.get("/clients/{client_id}/dashboard", tags=["clients"])
-def client_dashboard(client_id: UUID, conn: psycopg.Connection = Depends(get_conn), p: Principal = Depends(require_advisor)):
+def client_dashboard(client_id: UUID, conn: psycopg.Connection = Depends(get_conn), p: Principal = Depends(require_staff)):
     return ok(dashboards.client_dashboard(conn, p, client_id))
 
 

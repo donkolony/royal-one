@@ -13,7 +13,8 @@ from app.core.errors import not_found, validation
 from app.core.http import Paging, order_by
 from app.domain import constants as C
 from app.schemas.models import PolicyCreate, PolicyPatch
-from app.services.common import require_client_in_scope, resolve_client_filter, update_row
+from app.services import audit
+from app.services.common import not_found_logged, require_client_in_scope, resolve_client_filter, update_row
 
 
 def list_insurers(conn: psycopg.Connection) -> Dict[str, Any]:
@@ -92,7 +93,7 @@ def list_policies(
 def get_policy(conn: psycopg.Connection, p: Principal, policy_id: UUID) -> Dict[str, Any]:
     row = fetch_one(conn, f"{_POLICY_SELECT} where p.id = %s and p.client_id = any(%s)", (policy_id, p.client_ids(conn)))
     if row is None:
-        raise not_found("Policy")
+        raise not_found_logged(conn, p, "policy", policy_id, "Policy")
     return _policy(row)
 
 
@@ -107,6 +108,8 @@ def create_policy(conn: psycopg.Connection, p: Principal, body: PolicyCreate) ->
     cols = body.model_dump()
     names = ", ".join(cols)
     row = fetch_one(conn, f"insert into policies ({names}) values ({', '.join(['%s'] * len(cols))}) returning id", list(cols.values()))
+    audit.record(conn, p, "policy.created", "policy", row["id"], client_id=body.client_id,
+                 summary=f"Added a {body.category} policy ({body.product_name})", details={"category": body.category})
     return get_policy(conn, p, row["id"])
 
 
@@ -119,4 +122,7 @@ def patch_policy(conn: psycopg.Connection, p: Principal, policy_id: UUID, body: 
     if "insurer_id" in fields:
         _check_insurer(conn, fields["insurer_id"])
     update_row(conn, "policies", policy_id, fields)
-    return get_policy(conn, p, policy_id)
+    out = get_policy(conn, p, policy_id)
+    audit.record(conn, p, "policy.updated", "policy", policy_id, client_id=out["client_id"],
+                 summary=f"Updated the policy '{out['product_name']}'", details={"fields": sorted(fields)})
+    return out

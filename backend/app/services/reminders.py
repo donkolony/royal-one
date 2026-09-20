@@ -19,7 +19,8 @@ from app.core.errors import bad_state, conflict, not_found, validation
 from app.core.http import Paging, order_by
 from app.domain import constants as C
 from app.schemas.models import ReminderCreate, ReminderPatch
-from app.services.common import require_client_in_scope, resolve_client_filter, update_row
+from app.services import audit
+from app.services.common import not_found_logged, require_client_in_scope, resolve_client_filter, update_row
 
 
 # ------------------------------------------------------------------------------------------ date helpers
@@ -191,7 +192,7 @@ def _load(conn: psycopg.Connection, p: Principal, reminder_id: UUID) -> Row:
         sql += " and r.audience in ('client', 'both')"
     row = fetch_one(conn, sql, params)
     if row is None:
-        raise not_found("Reminder")
+        raise not_found_logged(conn, p, "reminder", reminder_id, "Reminder")
     return row
 
 
@@ -260,6 +261,8 @@ def create_reminder(conn: psycopg.Connection, p: Principal, body: ReminderCreate
         "values (%s,%s,%s,%s,%s,%s,'manual',%s) returning id",
         (body.client_id, body.type, body.title, body.description, body.due_date, body.audience, p.id),
     )
+    audit.record(conn, p, "reminder.created", "reminder", row["id"], client_id=body.client_id,
+                 summary="Created a manual reminder", details={"type": body.type, "due_date": body.due_date})
     return reminder_object(_load(conn, p, row["id"]), clock.today())
 
 
@@ -272,6 +275,8 @@ def patch_reminder(conn: psycopg.Connection, p: Principal, reminder_id: UUID, bo
     if fields.get("status") == "pending":
         fields["completed_at"] = None
     update_row(conn, "reminders", reminder_id, fields)
+    audit.record(conn, p, "reminder.updated", "reminder", reminder_id, client_id=_load(conn, p, reminder_id)["client_id"],
+                 summary="Updated a reminder", details={"fields": sorted(fields)})
     return reminder_object(_load(conn, p, reminder_id), clock.today())
 
 
@@ -280,6 +285,8 @@ def complete_reminder(conn: psycopg.Connection, p: Principal, reminder_id: UUID)
     if row["status"] != "pending":
         raise bad_state(f"This reminder is already {row['status']}.")
     execute(conn, "update reminders set status = 'done', completed_at = now(), completed_by = %s, updated_at = now() where id = %s", (p.id, reminder_id))
+    audit.record(conn, p, "reminder.completed", "reminder", reminder_id, client_id=row["client_id"],
+                 summary=f"Completed a reminder: {row['title']}", details={"type": row["type"]})
     return reminder_object(_load(conn, p, reminder_id), clock.today())
 
 
@@ -288,6 +295,7 @@ def delete_reminder(conn: psycopg.Connection, p: Principal, reminder_id: UUID) -
     if row["source"] != "manual":
         raise conflict("Reminders created by the system cannot be deleted. Dismiss them instead.")
     execute(conn, "delete from reminders where id = %s", (reminder_id,))
+    audit.record(conn, p, "reminder.deleted", "reminder", reminder_id, client_id=row["client_id"], summary="Deleted a manual reminder")
 
 
 def run_check(conn: psycopg.Connection, p: Principal) -> Dict[str, int]:

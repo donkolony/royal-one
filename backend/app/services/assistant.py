@@ -23,6 +23,7 @@ from app.core.errors import not_found
 from app.core.http import Paging
 from app.llm.base import LLMRouter, Message
 from app.rag.retrieval import Chunk, Filters, Retriever, best_quote, keywords
+from app.services import audit
 from app.schemas.models import AssistantQuery
 
 REFUSAL = "I couldn't find this in the approved documents. Try rephrasing, or check the document library."
@@ -149,6 +150,12 @@ def query(conn: psycopg.Connection, retriever: Retriever, llm: LLMRouter, p: Pri
         (conv_id, answer, grounded, Jsonb(citations, dumps=lambda o: json.dumps(o, default=str))),
     )
     execute(conn, "update assistant_conversations set updated_at = now() where id = %s", (conv_id,))
+    # The question text stays in assistant_messages; the trail records that it was asked and which sources came back.
+    audit.record(conn, p, "assistant.query", "assistant_message", msg["id"],
+                 summary=f"Asked the document assistant ({'answered from ' + str(len(citations)) + ' source(s)' if grounded else 'no supported answer'})",
+                 details={"conversation_id": conv_id, "grounded": grounded, "question_chars": len(body.question),
+                          "sources": [{"document_id": c["document_id"], "title": c["document_title"], "page": c["page"]} for c in citations],
+                          "retrieved": [{"document_id": c.document_id, "page": c.page} for c in chunks]})
     return {
         "conversation_id": conv_id, "message_id": msg["id"], "answer": answer, "grounded": grounded, "citations": citations,
         "model": model, "latency_ms": int((time.monotonic() - started) * 1000),

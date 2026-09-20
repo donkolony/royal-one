@@ -17,7 +17,7 @@ from app.main import create_app
 from app.storage.base import MemoryStorage
 
 SECRET = "test-secret-test-secret-test-secret-0000"
-ADVISER, ADVISER_2 = seed.ADVISER, seed.ADVISER_2
+ADVISER, ADVISER_2, OWNER = seed.ADVISER, seed.ADVISER_2, seed.OWNER
 CLIENT_1, CLIENT_2, CLIENT_3, CLIENT_4 = seed.CLIENT_1, seed.CLIENT_2, seed.CLIENT_3, seed.CLIENT_4
 
 
@@ -126,3 +126,9 @@ def ids_of(resp) -> List[str]:
 
 def claim_id(name: str) -> str:
     return str(seed.uid(f"claim-{name}"))
+
+
+def audit_rows(db, **where):
+    """Audit entries matching column=value pairs, oldest first (arranging and asserting on the trail directly)."""
+    clause = " and ".join(f"{k} = %s" for k in where) or "true"
+    return db.execute(f"select * from audit_log where {clause} order by id", list(where.values())).fetchall()

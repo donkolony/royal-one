@@ -29,9 +29,11 @@ def uid(name: str) -> UUID:
 
 ADVISER = uid("adviser-1")
 ADVISER_2 = uid("adviser-2")
+OWNER = uid("owner-1")
 CLIENT_1, CLIENT_2, CLIENT_3, CLIENT_4 = (uid(f"client-{i}") for i in range(1, 5))
 
 USERS: List[Dict[str, Any]] = [
+    {"id": OWNER, "role": "owner", "full_name": "Demo Owner", "email": "owner@demo.example", "phone": "+27 82 000 0900"},
     {"id": ADVISER, "role": "advisor", "full_name": "Demo Adviser", "email": "adviser@demo.example", "phone": "+27 82 000 0100"},
     {"id": ADVISER_2, "role": "advisor", "full_name": "Other Adviser", "email": "adviser2@demo.example", "phone": "+27 82 000 0200"},
     {"id": CLIENT_1, "role": "client", "full_name": "Demo Client One", "email": "client1@demo.example", "phone": "+27 82 000 0001"},
@@ -41,14 +43,16 @@ USERS: List[Dict[str, Any]] = [
 ]
 
 TABLES = [
-    "email_messages", "email_threads", "assistant_messages", "assistant_conversations", "document_chunks", "documents",
+    "audit_log", "email_messages", "email_threads", "assistant_messages", "assistant_conversations", "document_chunks", "documents",
     "attachments", "requests", "claim_events", "claims", "reminders", "goal_participants", "goals", "financial_items",
     "policies", "clients", "profiles",
 ]
 
 
 def reset_data(conn: psycopg.Connection) -> None:
-    """Empty every data table (reference data such as insurers stays)."""
+    """Empty every data table (reference data such as insurers stays). The audit log is append-only; the reset is the one
+    place allowed to empty it, for this transaction only (migration 0003)."""
+    execute(conn, "set local app.audit_reset = 'on'")
     execute(conn, f"truncate {', '.join(TABLES)} restart identity cascade")
     execute(conn, "alter sequence claim_reference_seq restart with 1")
 

@@ -8,10 +8,12 @@ from uuid import UUID
 import psycopg
 
 from app.core import clock
+from app.core.auth import Principal
 from app.core.config import Settings
 from app.core.db import Row, fetch_all, fetch_one
 from app.core.errors import not_found
 from app.core.http import Paging, order_by
+from app.services import audit
 from app.storage.base import Storage
 
 _SELECT = "select d.*, i.name as insurer_name from documents d left join insurers i on i.id = d.insurer_id"
@@ -55,10 +57,12 @@ def get_document(conn: psycopg.Connection, document_id: UUID) -> Dict[str, Any]:
     return document_object(_load(conn, document_id))
 
 
-def document_url(conn: psycopg.Connection, settings: Settings, storage: Storage, document_id: UUID) -> Dict[str, Any]:
+def document_url(conn: psycopg.Connection, settings: Settings, storage: Storage, p: Principal, document_id: UUID) -> Dict[str, Any]:
     row = _load(conn, document_id)
     if not row["storage_path"] or row["status"] != "indexed":
         raise not_found("Document file")
+    audit.record(conn, p, "document.viewed", "rag_document", document_id, summary=f"Opened the approved document '{row['title']}'",
+                 details={"title": row["title"]})
     return {
         "url": storage.signed_url(settings.rag_docs_bucket, row["storage_path"], settings.signed_url_ttl_seconds),
         "expires_at": clock.now() + timedelta(seconds=settings.signed_url_ttl_seconds),

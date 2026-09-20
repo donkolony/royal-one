@@ -21,8 +21,8 @@ from app.schemas.models import (
     ClaimCreate, ClaimPatch, HireCarPatch, InsurerDetailsPatch, RepairDateBody, RepairDetailsPatch, ReviewBody,
     TransitionBody, UpdateBody,
 )
-from app.services import attachments as att
-from app.services.common import insurer_ref, resolve_client_filter, update_row
+from app.services import attachments as att, audit
+from app.services.common import insurer_ref, not_found_logged, resolve_client_filter, update_row
 from app.storage.base import Storage
 
 _SELECT = """
@@ -37,13 +37,13 @@ left join insurers i on i.id = c.insurer_id
 def load_claim(conn: psycopg.Connection, p: Principal, claim_id: UUID, lock: bool = False) -> Row:
     """Load one claim within the caller's scope. Advisers never see drafts (api.md 2.3)."""
     sql = f"{_SELECT} where c.id = %s and c.client_id = any(%s)"
-    if p.is_advisor:
+    if not p.is_client:
         sql += " and c.status <> 'draft'"
     if lock:
         sql += " for update of c"
     row = fetch_one(conn, sql, (claim_id, p.client_ids(conn)))
     if row is None:
-        raise not_found("Claim")
+        raise not_found_logged(conn, p, "claim", claim_id, "Claim")
     return row
 
 
@@ -217,6 +217,14 @@ def get_claim(conn: psycopg.Connection, settings: Settings, storage: Storage, p:
     return detail(conn, settings, storage, p, load_claim(conn, p, claim_id))
 
 
+def open_claim(conn: psycopg.Connection, settings: Settings, storage: Storage, p: Principal, claim_id: UUID) -> Dict[str, Any]:
+    """GET /claims/{id}: the claim, plus an audit entry when STAFF open it (the pages poll, so repeats are collapsed)."""
+    out = get_claim(conn, settings, storage, p, claim_id)
+    audit.record_view(conn, p, "claim.viewed", "claim", claim_id, client_id=out["client"]["id"],
+                      summary=f"Opened claim {out['reference'] or '(draft)'}", details={"attachments": len(out["attachments"])})
+    return out
+
+
 def add_event(
     conn: psycopg.Connection, claim_id: UUID, type_: str, title: str, *, message: Optional[str] = None, visible: bool = True,
     from_status: Optional[str] = None, to_status: Optional[str] = None, actor_id: Optional[UUID] = None,
@@ -237,7 +245,7 @@ def list_claims(
     ids = resolve_client_filter(conn, p, client_id)
     order = order_by(sort, {"updated_at": "c.updated_at", "submitted_at": "c.submitted_at"}, "-updated_at")
     where, params = ["c.client_id = any(%s)"], [ids]
-    if p.is_advisor:
+    if not p.is_client:
         where.append("c.status <> 'draft'")
     if statuses:
         for s in statuses:
@@ -246,7 +254,7 @@ def list_claims(
         where.append("c.status = any(%s)")
         params.append(statuses)
     if open_:
-        where.append("c.status not in ('draft', 'closed')" if p.is_advisor else "c.status <> 'closed'")
+        where.append("c.status <> 'closed'" if p.is_client else "c.status not in ('draft', 'closed')")
     if search:
         where.append("(c.reference ilike %s or c.insurer_claim_number ilike %s or cl.full_name ilike %s)")
         like = f"%{search}%"
@@ -286,6 +294,7 @@ def create_draft(conn: psycopg.Connection, settings: Settings, storage: Storage,
         raise validation("insurer_id", "invalid_value", "Unknown insurer.")
     row = fetch_one(conn, "insert into claims (client_id, policy_id, insurer_id) values (%s,%s,%s) returning id", (p.id, body.policy_id, insurer_id))
     add_event(conn, row["id"], "created", "Claim started", actor_id=p.id)
+    audit.record(conn, p, "claim.created", "claim", row["id"], client_id=p.id, summary="Started a motor claim (draft)")
     return get_claim(conn, settings, storage, p, row["id"])
 
 
@@ -334,6 +343,9 @@ def upload_attachment(
                     declared_type=declared_type, data=data, max_count=settings.max_attachments_per_claim)
     if row["status"] != "draft":
         add_event(conn, claim_id, "attachment_added", "Document added", message=label or obj["filename"], actor_id=p.id)
+    audit.record(conn, p, "document.uploaded", "attachment", obj["id"], client_id=row["client_id"],
+                 summary=f"Uploaded a {kind} to claim {row['reference'] or '(draft)'}",
+                 details={"claim_id": claim_id, "kind": kind, "content_type": obj["content_type"], "size_bytes": obj["size_bytes"]})
     return obj
 
 
@@ -344,6 +356,8 @@ def delete_attachment(conn: psycopg.Connection, settings: Settings, storage: Sto
     if a is None:
         raise not_found("Attachment")
     execute(conn, "delete from attachments where id = %s", (attachment_id,))
+    audit.record(conn, p, "document.deleted", "attachment", attachment_id, client_id=row["client_id"],
+                 summary="Removed an attachment from a draft claim", details={"claim_id": claim_id})
     storage.delete(settings.attachments_bucket, [a["storage_path"]])
 
 
@@ -362,6 +376,8 @@ def submit(conn: psycopg.Connection, settings: Settings, storage: Storage, p: Pr
         (reference, claim_id),
     )
     add_event(conn, claim_id, "submitted", "Claim sent to Royal Square", from_status="draft", to_status="submitted", actor_id=p.id)
+    audit.record(conn, p, "claim.submitted", "claim", claim_id, client_id=row["client_id"], summary=f"Submitted claim {reference}",
+                 details={"reference": reference})
     return get_claim(conn, settings, storage, p, claim_id)
 
 
@@ -371,6 +387,8 @@ def choose_repair_date(conn: psycopg.Connection, settings: Settings, storage: St
         raise bad_state("You can choose a repair date once the repairs have been approved.")
     update_row(conn, "claims", claim_id, {"repair_drop_off_date": body.drop_off_date})
     add_event(conn, claim_id, "repair_date_chosen", "Repair date chosen", message=f"Vehicle goes in on {body.drop_off_date.day} {body.drop_off_date.strftime('%b %Y')}.", actor_id=p.id)
+    audit.record(conn, p, "claim.repair_date_chosen", "claim", claim_id, client_id=row["client_id"],
+                 summary=f"Chose a repair drop-off date for claim {row['reference']}", details={"drop_off_date": body.drop_off_date})
     return get_claim(conn, settings, storage, p, claim_id)
 
 
@@ -385,6 +403,8 @@ def review(conn: psycopg.Connection, settings: Settings, storage: Storage, p: Pr
         (body.rating, body.comment, claim_id),
     )
     add_event(conn, claim_id, "review_submitted", "Review received. Claim closed", message=f"Rating: {body.rating}/5", from_status="completed", to_status="closed", actor_id=p.id)
+    audit.record(conn, p, "claim.reviewed", "claim", claim_id, client_id=row["client_id"],
+                 summary=f"Reviewed and closed claim {row['reference']}", details={"rating": body.rating})
     return get_claim(conn, settings, storage, p, claim_id)
 
 
@@ -399,6 +419,8 @@ def patch_insurer_details(conn: psycopg.Connection, settings: Settings, storage:
         update_row(conn, "claims", claim_id, changed)
         msg = f"Claim number {cols['insurer_claim_number']}" if cols.get("insurer_claim_number") else None
         add_event(conn, claim_id, "insurer_details_updated", "Insurer details updated", message=msg, actor_id=p.id)
+        audit.record(conn, p, "claim.insurer_details_updated", "claim", claim_id, client_id=row["client_id"],
+                     summary=f"Updated insurer details on claim {row['reference']}", details={"fields": sorted(changed)})
     return get_claim(conn, settings, storage, p, claim_id)
 
 
@@ -418,15 +440,21 @@ def transition(conn: psycopg.Connection, settings: Settings, storage: Storage, p
     message = body.note or (f"Claim number {row['insurer_claim_number']}" if to == "registered" else None)
     add_event(conn, claim_id, "status_changed", title, message=message, visible=body.visible_to_client,
               from_status=row["status"], to_status=to, actor_id=p.id)
+    audit.record(conn, p, "claim.status_changed", "claim", claim_id, client_id=row["client_id"],
+                 summary=f"Moved claim {row['reference']} from {row['status']} to {to}",
+                 details={"from": row["status"], "to": to, "visible_to_client": body.visible_to_client})
     return get_claim(conn, settings, storage, p, claim_id)
 
 
 def patch_repair_details(conn: psycopg.Connection, settings: Settings, storage: Storage, p: Principal, claim_id: UUID, body: RepairDetailsPatch) -> Dict[str, Any]:
-    load_claim(conn, p, claim_id, lock=True)
+    row = load_claim(conn, p, claim_id, lock=True)
     mapping = {"repairer_name": "repair_repairer_name", "repairer_phone": "repair_repairer_phone", "quote_amount_cents": "repair_quote_amount_cents",
                "authorised_amount_cents": "repair_authorised_amount_cents", "estimated_completion_date": "repair_estimated_completion_date",
                "completed_at": "repair_completed_at"}
-    update_row(conn, "claims", claim_id, {mapping[k]: v for k, v in body.model_dump(exclude_unset=True).items()})
+    fields = body.model_dump(exclude_unset=True)
+    update_row(conn, "claims", claim_id, {mapping[k]: v for k, v in fields.items()})
+    audit.record(conn, p, "claim.repair_updated", "claim", claim_id, client_id=row["client_id"],
+                 summary=f"Updated repair details on claim {row['reference']}", details={"fields": sorted(fields)})
     return get_claim(conn, settings, storage, p, claim_id)
 
 
@@ -442,14 +470,19 @@ def patch_hire_car(conn: psycopg.Connection, settings: Settings, storage: Storag
         new_status = data.get("status", row["hire_car_status"])
         title = C.HIRE_CAR_LABELS[new_status] if data.get("status") and data["status"] != row["hire_car_status"] else "Hire car details updated"
         add_event(conn, claim_id, "hire_car_updated", title, actor_id=p.id)
+        audit.record(conn, p, "claim.hire_car_updated", "claim", claim_id, client_id=row["client_id"],
+                     summary=f"Updated the hire car on claim {row['reference']}", details={"status": new_status})
     return get_claim(conn, settings, storage, p, claim_id)
 
 
 def post_update(conn: psycopg.Connection, p: Principal, claim_id: UUID, body: UpdateBody) -> Dict[str, Any]:
-    load_claim(conn, p, claim_id, lock=True)
+    row = load_claim(conn, p, claim_id, lock=True)
     visible = body.visible_to_client if body.visible_to_client is not None else body.type == "repair_update"
     title = "Repair update" if body.type == "repair_update" else "Note added"
     ev = add_event(conn, claim_id, body.type, title, message=body.message, visible=visible, actor_id=p.id)
+    audit.record(conn, p, "claim.note_added" if body.type == "note" else "claim.repair_update_posted", "claim", claim_id,
+                 client_id=row["client_id"], summary=f"Posted a {'note' if body.type == 'note' else 'repair update'} on claim {row['reference']}",
+                 details={"visible_to_client": visible})
     execute(conn, "update claims set updated_at = now() where id = %s", (claim_id,))
     r = fetch_one(conn, "select e.*, a.full_name as actor_name, a.role as actor_role from claim_events e left join profiles a on a.id = e.actor_id where e.id = %s", (ev["id"],))
     return event_object(r)

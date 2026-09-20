@@ -1395,6 +1395,33 @@ Reserved for the live Gmail integration. Return `501 not_implemented` in the hac
 
 ---
 
+### 5.15 Audit trail (staff)
+
+Added with the Revenue & Compliance work (`docs/AUDIT.md`). `staff` = adviser or owner. The owner sees every entry; an adviser sees entries about their assigned clients plus their own actions. A client gets `403`.
+
+Every meaningful event is appended by the service layer in the same transaction as the change: claim, request, document, goal, reminder, policy, balance-sheet and client edits, staff views of a client or claim (repeat views within 10 minutes are collapsed), AI assistant queries, AI email drafts, and refused attempts to open another adviser's record (`access.denied`). Summaries and details never contain document text, bank numbers or email bodies.
+
+| Endpoint | Notes |
+|---|---|
+| `GET /audit` | Newest first, paged. Filters: `client_id`, `actor_id`, `action` (exact, or a prefix such as `claim`), `entity_type`, `date_from`, `date_to` (inclusive, South African dates), `q` (text in the summary). |
+| `GET /audit/export` | The same filters, as `text/csv` (at most 10 000 rows, oldest first). Cells that could be read as spreadsheet formulas are prefixed with an apostrophe. The export is itself logged as `audit.exported`. |
+| `GET /audit/verify` | Owner only. Recomputes the SHA-256 hash chain: `{ok, checked, first_bad_id, head}`. |
+
+```ts
+interface AuditEntry {
+  id: number; occurred_at: ISODateTime;
+  actor: { id: UUID | null; full_name: string | null; role: "client" | "advisor" | "owner" | "system" };
+  action: string; entity_type: string; entity_id: string | null;
+  client: { id: UUID; full_name: string } | null;
+  summary: string; details: Record<string, unknown>;
+  ip: string | null; user_agent: string | null; request_id: string | null; hash: string;
+}
+```
+
+**Tamper evidence is demo level.** The database refuses UPDATE, DELETE and TRUNCATE on `audit_log`, and each row stores the hash of its content and of the previous row. A database administrator could still drop the triggers; verification then reveals an edited row but cannot prevent one.
+
+---
+
 ## 6. End-to-end flows
 
 Numbers are call order. `→` is a client-to-API call. Use TanStack Query (or equivalent) so results are cached and re-fetched sensibly.
@@ -1558,6 +1585,9 @@ Until the backend is deployed, the JSON examples in Section 5 can be used as fix
 | 66 | POST | `/email/drafts/generate` | advisor | P0 |
 | 67 | GET | `/email/oauth/start` | advisor | P2 (501) |
 | 68 | GET | `/email/oauth/callback` | advisor | P2 (501) |
+| 69 | GET | `/audit` | staff | P0 |
+| 70 | GET | `/audit/export` | staff | P0 |
+| 71 | GET | `/audit/verify` | owner | P1 |
 
 All paths except `/health` are relative to `/api/v1`.
 
@@ -1568,6 +1598,7 @@ All paths except `/health` are relative to `/api/v1`.
 | Version | Date | Change |
 |---|---|---|
 | 0.1 | 2026-09-19 | First draft of the contract from PRD v1.0. Not yet implemented. |
+| 0.2.0 | 2026-09-20 | Revenue & Compliance work, step 1: an `owner` role (`GET /me` returns `owner: {id}` for it; the owner reads clients and the claims pipeline like an adviser); the audit trail (`/audit`, `/audit/export`, `/audit/verify`, section 5.15); `GET /documents/{id}/url` and every write are logged. Additive only. |
 | 0.1.2 | 2026-09-19 | No shape changes. Assistant citation `quote` never starts with a section heading; transient LLM failures (5xx, network) are retried once before falling back or returning `503`. |
 | 0.1.1 | 2026-09-19 | Implemented; contract test added. Changes found while implementing and testing: `claim_police_report` `lead_days` is 2, not 0 (its deadline is 48 h away, so with 0 the reminder never appeared); reference endpoints that need a login are `private`-cached; request field types gained `uuid` and `date_list`; `ClientDetail.counts.open_claims` excludes drafts; reminders older than 90 days overdue are not created; `POST /claims/{id}/attachments` writes no timeline event for a draft; documented the `missing_fields` paths, the assistant's no-LLM behaviour and the `needs_attention` link resources. No breaking changes to shapes. |
 

@@ -12,7 +12,7 @@ from app.core.auth import Principal
 from app.core.db import fetch_all, fetch_one
 from app.core.errors import not_found
 from app.domain import constants as C
-from app.services import catalog, claims, finance, goals, reminders, requests as requests_svc
+from app.services import audit, catalog, claims, finance, goals, reminders, requests as requests_svc
 from app.services.common import person_ref, require_client_in_scope
 
 
@@ -27,7 +27,9 @@ def client_dashboard(conn: psycopg.Connection, viewer: Principal, client_id: UUI
     )
     pols = catalog.list_policies_for(conn, [client_id])
 
-    exclude = "'draft', 'closed'" if viewer.is_advisor else "'closed'"
+    exclude = "'closed'" if viewer.is_client else "'draft', 'closed'"
+    audit.record_view(conn, viewer, "client.viewed", "client", client_id, client_id=client_id,
+                      summary=f"Opened the client file for {client['full_name']}")
     claim_rows = fetch_all(
         conn,
         f"{claims._SELECT} where c.client_id = %s and c.status not in ({exclude}) order by c.updated_at desc, c.id",

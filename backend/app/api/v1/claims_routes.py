@@ -8,7 +8,7 @@ import psycopg
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 
 from app.api.deps import settings_dep, storage_dep
-from app.core.auth import Principal, get_principal, require_advisor, require_client
+from app.core.auth import Principal, get_principal, require_advisor, require_client, require_staff
 from app.core.config import Settings
 from app.core.db import get_conn
 from app.core.errors import validation
@@ -38,7 +38,7 @@ def checklist(p: Principal = Depends(get_principal)):
 
 @router.get("/claims/pipeline", tags=["claims"])
 def pipeline(client_id: Optional[UUID] = None, include_closed: bool = False,
-             conn: psycopg.Connection = Depends(get_conn), p: Principal = Depends(require_advisor)):
+             conn: psycopg.Connection = Depends(get_conn), p: Principal = Depends(require_staff)):
     return ok(claims.pipeline(conn, p, client_id, include_closed))
 
 
@@ -61,7 +61,7 @@ def list_claims(
 @router.get("/claims/{claim_id}", tags=["claims"])
 def get_claim(claim_id: UUID, conn: psycopg.Connection = Depends(get_conn), settings: Settings = Depends(settings_dep),
               storage: Storage = Depends(storage_dep), p: Principal = Depends(get_principal)):
-    return ok(claims.get_claim(conn, settings, storage, p, claim_id))
+    return ok(claims.open_claim(conn, settings, storage, p, claim_id))
 
 
 @router.patch("/claims/{claim_id}", tags=["claims"])

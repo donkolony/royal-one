@@ -9,6 +9,7 @@ import psycopg
 from app.core.auth import Principal
 from app.core.db import Row, execute, fetch_one
 from app.core.errors import not_found, validation
+from app.services import audit
 
 
 def person_ref(row: Row, prefix: str = "") -> Dict[str, Any]:
@@ -30,10 +31,30 @@ def progress_percent(current: int, target: int) -> float:
     return min(100.0, round(current * 100.0 / target, 1))
 
 
+# Which client owns each kind of record, so a refused attempt can be logged against the data subject.
+_OWNERS = {
+    "client": "select id as cid from clients where id = %s",
+    "claim": "select client_id as cid from claims where id = %s",
+    "request": "select client_id as cid from requests where id = %s",
+    "policy": "select client_id as cid from policies where id = %s",
+    "goal": "select client_id as cid from goal_participants where goal_id = %s limit 1",
+    "reminder": "select client_id as cid from reminders where id = %s",
+}
+
+
+def not_found_logged(conn: psycopg.Connection, principal: Principal, entity_type: str, entity_id: UUID, label: str):
+    """A 404 for something outside the caller's scope. The answer is identical whether or not the record exists (so ids
+    cannot be probed), but when it DOES exist the refused attempt is written to the audit trail."""
+    row = fetch_one(conn, _OWNERS[entity_type], (entity_id,))
+    if row is not None:
+        audit.record_denied(principal, entity_type, entity_id, client_id=row["cid"])
+    return not_found(label)
+
+
 def require_client_in_scope(conn: psycopg.Connection, principal: Principal, client_id: UUID) -> UUID:
     """404 (not 403) for a client outside the caller's scope, so ids cannot be probed."""
     if client_id not in principal.client_ids(conn):
-        raise not_found("Client")
+        raise not_found_logged(conn, principal, "client", client_id, "Client")
     return client_id
 
 
@@ -45,7 +66,7 @@ def resolve_client_filter(conn: psycopg.Connection, principal: Principal, client
             raise validation("client_id", "required", "client_id is required.")
         return ids
     if client_id not in ids:
-        raise not_found("Client")
+        raise not_found_logged(conn, principal, "client", client_id, "Client")
     return [client_id]
 
 

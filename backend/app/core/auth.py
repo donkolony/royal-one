@@ -10,7 +10,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Protocol, Tuple
+from typing import Any, Dict, List, Optional, Protocol, Tuple
 from uuid import UUID
 
 import jwt
@@ -119,6 +119,11 @@ class Principal:
     full_name: str
     email: str
     phone: Optional[str] = None
+    # Request context, recorded on every audit entry (docs/AUDIT.md build step 1). IP is as reported by the proxy chain.
+    ip: Optional[str] = field(default=None, repr=False)
+    user_agent: Optional[str] = field(default=None, repr=False)
+    request_id: Optional[str] = field(default=None, repr=False)
+    _pool: Any = field(default=None, repr=False)     # lets a denied attempt be logged outside the request's transaction
     _client_ids: Optional[List[UUID]] = field(default=None, repr=False)
 
     @property
@@ -129,11 +134,23 @@ class Principal:
     def is_client(self) -> bool:
         return self.role == "client"
 
+    @property
+    def is_owner(self) -> bool:
+        return self.role == "owner"
+
+    @property
+    def is_staff(self) -> bool:
+        """Adviser or owner: anyone who is not a client."""
+        return self.role in ("advisor", "owner")
+
     def client_ids(self, conn: psycopg.Connection) -> List[UUID]:
-        """The one scoping rule (ARCHITECT 4.3): a client sees themselves, an adviser sees assigned clients."""
+        """The one scoping rule (ARCHITECT 4.3): a client sees themselves, an adviser sees assigned clients,
+        the owner sees every client."""
         if self._client_ids is None:
             if self.is_client:
                 self._client_ids = [self.id]
+            elif self.is_owner:
+                self._client_ids = [r["id"] for r in fetch_all(conn, "select id from clients")]
             else:
                 rows = fetch_all(conn, "select id from clients where adviser_id = %s", (self.id,))
                 self._client_ids = [r["id"] for r in rows]
@@ -158,6 +175,11 @@ def get_principal(request: Request, conn: psycopg.Connection = Depends(get_conn)
         # A valid Supabase user with no profile row: the account has not been provisioned.
         raise forbidden("This account is not set up yet. Contact Royal Square.")
     principal = Principal(**row)
+    forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    principal.ip = (forwarded or (request.client.host if request.client else None) or None)
+    principal.user_agent = (request.headers.get("user-agent") or "")[:200] or None
+    principal.request_id = getattr(request.state, "request_id", None)
+    principal._pool = getattr(request.app.state, "pool", None)
     request.state.user_id = str(principal.id)
     return principal
 
@@ -171,6 +193,18 @@ def require_client(p: Principal = Depends(get_principal)) -> Principal:
 def require_advisor(p: Principal = Depends(get_principal)) -> Principal:
     if not p.is_advisor:
         raise forbidden("This action is only available to advisers.")
+    return p
+
+
+def require_staff(p: Principal = Depends(get_principal)) -> Principal:
+    if not p.is_staff:
+        raise forbidden("This action is only available to Royal Square staff.")
+    return p
+
+
+def require_owner(p: Principal = Depends(get_principal)) -> Principal:
+    if not p.is_owner:
+        raise forbidden("This action is only available to the firm's owner.")
     return p
 
 

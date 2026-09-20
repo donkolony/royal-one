@@ -41,7 +41,7 @@ def get_document(document_id: UUID, conn: psycopg.Connection = Depends(get_conn)
 @router.get("/documents/{document_id}/url", tags=["documents"])
 def document_url(document_id: UUID, conn: psycopg.Connection = Depends(get_conn), settings: Settings = Depends(settings_dep),
                  storage: Storage = Depends(storage_dep), p: Principal = Depends(require_advisor)):
-    return ok(documents.document_url(conn, settings, storage, document_id))
+    return ok(documents.document_url(conn, settings, storage, p, document_id))
 
 
 # ----------------------------------------------------------------------------------------------- assistant

@@ -17,6 +17,7 @@ from app.core.errors import not_found, validation
 from app.core.http import Paging
 from app.domain import constants as C
 from app.schemas.models import FinancialItemCreate, FinancialItemPatch
+from app.services import audit
 from app.services.common import require_client_in_scope, resolve_client_filter, update_row
 
 _POLICY_TO_ITEM_CATEGORY = {"investment": "investments", "retirement": "retirement"}
@@ -88,6 +89,8 @@ def create_item(conn: psycopg.Connection, p: Principal, body: FinancialItemCreat
         "insert into financial_items (client_id, kind, category, label, amount_cents, as_of_date) values (%s,%s,%s,%s,%s,%s) returning *",
         (body.client_id, body.kind, body.category, body.label, body.amount_cents, body.as_of_date),
     )
+    audit.record(conn, p, "financial_item.created", "financial_item", row["id"], client_id=body.client_id,
+                 summary=f"Added a {body.kind} ({body.category}) to the balance sheet", details={"kind": body.kind, "category": body.category})
     return _item(row)
 
 
@@ -107,9 +110,13 @@ def patch_item(conn: psycopg.Connection, p: Principal, item_id: UUID, body: Fina
     if "category" in fields:
         _check_category(row["kind"], fields["category"])
     update_row(conn, "financial_items", item_id, fields)
+    audit.record(conn, p, "financial_item.updated", "financial_item", item_id, client_id=row["client_id"],
+                 summary="Updated a balance-sheet item", details={"fields": sorted(fields)})
     return _item(fetch_one(conn, "select * from financial_items where id = %s", (item_id,)))
 
 
 def delete_item(conn: psycopg.Connection, p: Principal, item_id: UUID) -> None:
-    _load_item(conn, p, item_id)
+    row = _load_item(conn, p, item_id)
     execute(conn, "delete from financial_items where id = %s", (item_id,))
+    audit.record(conn, p, "financial_item.deleted", "financial_item", item_id, client_id=row["client_id"],
+                 summary="Removed a balance-sheet item", details={"kind": row["kind"], "category": row["category"]})

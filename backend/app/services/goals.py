@@ -11,7 +11,8 @@ from app.core.db import Row, execute, fetch_all, fetch_one
 from app.core.errors import not_found, validation
 from app.core.http import Paging, order_by
 from app.schemas.models import GoalCreate, GoalPatch
-from app.services.common import progress_percent, resolve_client_filter, update_row
+from app.services import audit
+from app.services.common import not_found_logged, progress_percent, resolve_client_filter, update_row
 
 
 def _participants(conn: psycopg.Connection, goal_ids: List[UUID]) -> Dict[UUID, List[Dict[str, Any]]]:
@@ -73,7 +74,7 @@ def get_goal(conn: psycopg.Connection, p: Principal, goal_id: UUID) -> Dict[str,
         (goal_id, p.client_ids(conn)),
     )
     if row is None:
-        raise not_found("Goal")
+        raise not_found_logged(conn, p, "goal", goal_id, "Goal")
     return goal_objects(conn, [row])[0]
 
 
@@ -91,6 +92,13 @@ def _set_participants(conn: psycopg.Connection, goal_id: UUID, ids: List[UUID]) 
         execute(conn, "insert into goal_participants (goal_id, client_id) values (%s, %s)", (goal_id, cid))
 
 
+def _audit_goal(conn: psycopg.Connection, p: Principal, action: str, goal: Dict[str, Any], summary: str) -> None:
+    """One entry per participant, so each client's own record shows the goal (shared goals have several)."""
+    for part in goal["participants"]:
+        audit.record(conn, p, action, "goal", goal["id"], client_id=part["client_id"], summary=summary,
+                     details={"title": goal["title"], "status": goal["status"], "progress_percent": goal["progress_percent"]})
+
+
 def create_goal(conn: psycopg.Connection, p: Principal, body: GoalCreate) -> Dict[str, Any]:
     _check_participants(conn, p, body.client_ids)
     status = "achieved" if body.current_amount_cents >= body.target_amount_cents else "active"
@@ -101,7 +109,9 @@ def create_goal(conn: psycopg.Connection, p: Principal, body: GoalCreate) -> Dic
         (body.title, body.description, body.category, status, body.target_amount_cents, body.current_amount_cents, body.target_date, p.id),
     )
     _set_participants(conn, row["id"], body.client_ids)
-    return get_goal(conn, p, row["id"])
+    goal = get_goal(conn, p, row["id"])
+    _audit_goal(conn, p, "goal.created", goal, f"Created the goal '{goal['title']}'")
+    return goal
 
 
 def patch_goal(conn: psycopg.Connection, p: Principal, goal_id: UUID, body: GoalPatch) -> Dict[str, Any]:
@@ -125,9 +135,12 @@ def patch_goal(conn: psycopg.Connection, p: Principal, goal_id: UUID, body: Goal
     update_row(conn, "goals", goal_id, fields)
     if client_ids is not None:
         _set_participants(conn, goal_id, client_ids)
-    return get_goal(conn, p, goal_id)
+    goal = get_goal(conn, p, goal_id)
+    _audit_goal(conn, p, "goal.updated", goal, f"Updated the goal '{goal['title']}'")
+    return goal
 
 
 def archive_goal(conn: psycopg.Connection, p: Principal, goal_id: UUID) -> None:
-    get_goal(conn, p, goal_id)
+    goal = get_goal(conn, p, goal_id)
     update_row(conn, "goals", goal_id, {"status": "archived"})
+    _audit_goal(conn, p, "goal.archived", goal, f"Archived the goal '{goal['title']}'")

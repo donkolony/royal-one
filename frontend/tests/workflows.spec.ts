@@ -1,137 +1,110 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from '@playwright/test';
 
-test("claim registration, adviser updates and persisted client tracking", async ({
-  page,
-}) => {
-  await page.goto("/");
-  await page
-    .getByRole("button", { name: "Register a claim", exact: true })
-    .click();
-  await page.getByLabel("Vehicle", { exact: true }).fill("2024 Test vehicle");
-  await page.getByLabel("Incident date").fill("2026-09-18");
-  await page.getByLabel("Incident time").fill("10:30");
-  await page.getByLabel("Location / cross streets").fill("Rosebank");
-  await page
-    .getByLabel("What happened?")
-    .fill("A test incident for workflow verification.");
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await page.getByLabel("Driver's full name").fill("Thando Mokoena");
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await page.getByRole("button", { name: "Submit claim", exact: true }).click();
-  await expect(page.getByRole("dialog")).toContainText("2024 Test vehicle");
-  await page.getByRole("button", { name: "Close dialog" }).click();
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByLabel("View as").selectOption("adviser");
-  await page.getByRole("link", { name: /^Claims/ }).click();
-  await page
-    .getByRole("button", { name: "2024 Test vehicle", exact: true })
-    .click();
-  await page
-    .getByRole("combobox", { name: "Status", exact: true })
-    .selectOption("1");
-  await page.getByLabel("Client update").fill("Assessment booked for Monday.");
-  await page.getByRole("button", { name: "Save update", exact: true }).click();
-  await page.getByRole("button", { name: "Close dialog" }).click();
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByLabel("View as").selectOption("client");
-  await page.reload();
-  await page.getByRole("link", { name: /^Claims/ }).click();
-  await page
-    .getByRole("button", { name: "2024 Test vehicle", exact: true })
-    .click();
-  await expect(page.getByRole("dialog")).toContainText(
-    "Assessment booked for Monday.",
-  );
-  await expect(
-    page.getByRole("button", { name: "Save update", exact: true }),
-  ).toHaveCount(0);
+async function login(page: Page, role: 'client' | 'advisor' = 'client') {
+  await page.addInitScript(role => sessionStorage.setItem('rs_mock_role', role), role);
+  await page.goto('/');
+  await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeAttached();
+}
+
+test('sign-in and role guards protect staff routes', async ({ page }) => {
+  await page.goto('/advisor/clients');
+  await expect(page).toHaveURL(/sign-in/);
+  await page.getByRole('button', { name: 'Client Thabo Mokoena' }).click();
+  await expect(page).toHaveURL(/not-found/);
+  await page.getByRole('link', { name: 'Return home' }).click();
+  await expect(page.getByRole('heading', { name: 'Good morning, Thabo.' })).toBeVisible();
+  await page.goto('/owner');
+  await expect(page).toHaveURL(/not-found/);
 });
 
-test("requests, reminders, goals and assistant references", async ({
-  page,
-}) => {
-  await page.goto("/");
-  await page.getByRole("button", { name: "New request", exact: true }).click();
-  await page.getByLabel("Request type").selectOption("Change of address");
-  await page.getByLabel("New address").fill("12 Test Street, Johannesburg");
-  await page
-    .getByRole("button", { name: "Submit request", exact: true })
-    .click();
-  await expect(
-    page.getByText("Address: 12 Test Street, Johannesburg"),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByLabel("View as").selectOption("adviser");
-  await page.getByRole("link", { name: "Goals", exact: true }).click();
-  await page.getByRole("button", { name: "Add goal", exact: true }).click();
-  await page.getByLabel("Goal name").fill("Education fund");
-  await page.getByLabel("Target amount (R)").fill("100000");
-  await page.getByLabel("Target date").fill("2028-01-01");
-  await page.getByRole("button", { name: "Save goal", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "Education fund" }),
-  ).toBeVisible();
-  await page.getByRole("link", { name: "Reminders", exact: true }).click();
-  await page
-    .getByRole("button", {
-      name: "Complete Annual financial review",
-      exact: true,
-    })
-    .click();
-  await expect(
-    page.getByRole("button", { name: "Restore", exact: true }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "More", exact: true }).click();
-  await page
-    .getByRole("link", { name: "Document assistant", exact: true })
-    .click();
-  await page
-    .getByRole("button", { name: "How is a hire car arranged?", exact: true })
-    .click();
-  await page
-    .getByRole("button", {
-      name: "Motor claims demo guide · p. 2",
-      exact: true,
-    })
-    .click();
-  await expect(page.locator(".source-excerpt")).toContainText(
-    "weekly repair updates",
-  );
-  await page.getByRole("link", { name: /^Inbox/ }).click();
-  await page
-    .getByRole("button", { name: "Prepare demo draft", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Save draft", exact: true }).click();
-  await page.reload();
-  await expect(page.getByLabel("Reply draft")).toHaveValue(/Hi Sarah/);
+test('client dashboard retains the design and navigates to API-backed pages', async ({ page }) => {
+  await login(page);
+  await expect(page.getByRole('region', { name: 'Your net worth' })).toContainText('Total assets');
+  await expect(page.locator('.brand-logo')).toBeVisible();
+  await page.getByRole('link', { name: 'View all goals' }).click();
+  await expect(page.getByRole('heading', { name: 'My Goals' })).toBeVisible();
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await page.getByRole('link', { name: 'Policies', exact: true }).click();
+  await expect(page.getByRole('heading', { name: /Policies/ }).first()).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Identity', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'My record', exact: true })).toBeVisible();
 });
 
-test("desktop and mobile layouts render without overflow", async ({ page }) => {
-  for (const viewport of [
-    { width: 1440, height: 1100 },
-    { width: 390, height: 844 },
-  ]) {
-    await page.setViewportSize(viewport);
-    await page.goto("/");
-    await expect(
-      page.getByRole("heading", { name: "Good morning, Thando." }),
-    ).toBeVisible();
-    await expect(page.locator(".review-banner img")).toBeVisible();
-    await page.screenshot({
-      path: `test-results/overview-${viewport.width}.png`,
-      fullPage: true,
-    });
-    expect(
-      await page.evaluate(
-        () => document.documentElement.scrollWidth <= window.innerWidth,
-      ),
-    ).toBeTruthy();
-    if (viewport.width < 760) {
-      await page.getByRole("button", { name: "Open navigation" }).click();
-      await page.getByRole("link", { name: /^Claims/ }).click();
-      await expect(
-        page.getByRole("heading", { name: "Your claims" }),
-      ).toBeVisible();
+test('adviser client search and added feature navigation', async ({ page }) => {
+  await login(page, 'advisor');
+  await page.getByRole('link', { name: 'Clients', exact: true }).click();
+  await page.getByPlaceholder('Search clients...').fill('Lerato');
+  await expect(page.getByRole('cell', { name: /Lerato Dlamini/ })).toBeVisible();
+  await expect(page.getByRole('cell', { name: /Thabo Mokoena/ })).toHaveCount(0);
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  for (const label of ['Opportunities', 'Compliance', 'Audit log', 'Privacy', 'Assistant', 'Email']) {
+    await expect(page.getByRole('link', { name: label, exact: true })).toBeVisible();
+  }
+});
+
+test('desktop and mobile workspace have no horizontal overflow', async ({ page }) => {
+  await login(page);
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto('/dashboard');
+    await expect(page.getByRole('heading', { name: 'Good morning, Thabo.' })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+    await page.screenshot({ path: `test-results/overview-${width}.png`, fullPage: true });
+    if (width === 390) {
+      await page.getByRole('button', { name: 'Open navigation' }).click();
+      await page.getByRole('link', { name: 'Goals', exact: true }).click();
+      await expect(page.getByRole('heading', { name: 'My Goals' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Open navigation' })).toBeVisible();
     }
   }
+});
+
+ test('reminder completion moves the record into the done filter', async ({ page }) => {
+  await login(page);
+  await page.getByRole('link', { name: 'Reminders', exact: true }).click();
+  const button = page.getByRole('button', { name: 'Mark Done', exact: true }).first();
+  await expect(button).toBeVisible();
+  const title = await button.locator('..').locator('p').first().innerText();
+  await button.click();
+  await expect(page.getByText(title, { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'done', exact: true }).click();
+  await expect(page.getByText(title, { exact: true })).toBeVisible();
+});
+
+test('a saved draft opens the claim form and saves incident details', async ({ page }) => {
+  await login(page);
+  await page.getByRole('link', { name: 'Claims', exact: true }).click();
+  await page.getByRole('link', { name: 'Draft claim', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'What happened?', exact: true })).toBeVisible();
+  await page.getByLabel('When did it happen?').fill('2026-09-18T10:30');
+  await page.getByLabel('Where did it happen?', { exact: false }).fill('Synthetic test intersection');
+  await page.getByLabel('What happened?', { exact: false }).fill('Synthetic incident for workflow testing.');
+  await page.getByRole('button', { name: 'Save and continue' }).click();
+  await expect(page.getByRole('heading', { name: 'Police, driver and other people' })).toBeVisible();
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await expect(page.getByLabel('Where did it happen?', { exact: false })).toHaveValue('Synthetic test intersection');
+});
+
+test('adviser dashboard stays readable on desktop, tablet and mobile', async ({ page }) => {
+  await login(page, 'advisor');
+  for (const width of [1440, 1024, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto('/advisor');
+    await expect(page.getByRole('heading', { name: /A clearer day ahead/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Claims at a glance' })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+    if (width === 1440) {
+      await expect(page.locator('.sidebar')).toHaveCSS('width', '280px');
+      await expect(page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Clients', exact: true })).toHaveCSS('font-size', '16px');
+    }
+    await page.screenshot({ path: `test-results/adviser-${width}.png`, fullPage: true });
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const task = page.locator('.adviser-task').first();
+  await expect(task).toBeVisible();
+  await expect(task).toHaveAttribute('href', /^\/advisor\//);
+  const destination = await task.getAttribute('href');
+  await task.click();
+  await expect(page).toHaveURL(new RegExp(destination!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$'));
+  await expect(page.getByRole('heading', { name: 'Page not found' })).toHaveCount(0);
 });

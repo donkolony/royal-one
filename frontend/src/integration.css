@@ -1,0 +1,159 @@
+/* Preserve the frontend branch's light navy/ruby workspace across API-backed pages. */
+:root {
+  color-scheme: light;
+}
+body {
+  background: #fafafa;
+}
+.feature-content {
+  min-width: 0;
+}
+.feature-content > div {
+  max-width: 100%;
+}
+.sidebar nav {
+  overflow-y: auto;
+}
+.sidebar .brand-logo {
+  flex-shrink: 0;
+}
+.sidebar nav svg {
+  width: 19px;
+  height: 19px;
+}
+.feature-content input,
+.feature-content select,
+.feature-content textarea {
+  max-width: 100%;
+}
+.feature-content table {
+  width: 100%;
+}
+.feature-content .shadow,
+.feature-content .shadow-sm {
+  box-shadow: none;
+}
+.feature-content .rounded-xl {
+  border-radius: 8px;
+}
+.feature-content h1 {
+  color: var(--brand-blue);
+}
+.feature-content .text-brand-500,
+.feature-content .text-brand-600 {
+  color: var(--brand-red);
+}
+.feature-content .bg-brand-500,
+.feature-content .bg-brand-600 {
+  background-color: var(--brand-red);
+}
+.wealth-panel .wealth-breakdown {
+  margin-top: 28px;
+}
+.wealth-panel .wealth-asof {
+  margin-top: 20px;
+  opacity: 0.7;
+}
+@media (max-width: 759px) {
+  .feature-content {
+    padding: 24px 18px;
+  }
+  .feature-content .overflow-x-auto {
+    max-width: 100%;
+  }
+}
+
+/* Readable workspace typography and roomier navigation for both portals. */
+:root {
+  font-size: 16px;
+  --workspace-sidebar-width: 280px;
+}
+.sidebar {
+  width: var(--workspace-sidebar-width);
+  padding-left: 22px;
+  padding-right: 22px;
+}
+.main-shell {
+  margin-left: var(--workspace-sidebar-width);
+  width: calc(100% - var(--workspace-sidebar-width));
+}
+.sidebar nav a,
+.more-nav-button {
+  font-size: 16px;
+  padding: 14px;
+  min-height: 48px;
+}
+.sidebar nav svg {
+  width: 21px;
+  height: 21px;
+}
+.workspace-label {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  margin-top: 30px;
+}
+.sidebar-footer {
+  font-size: 11px;
+  gap: 8px;
+}
+.support-link {
+  font-size: 15px;
+  min-height: 46px;
+}
+.breadcrumb {
+  font-size: 14px;
+}
+.avatar {
+  width: 39px;
+  height: 39px;
+  font-size: 13px;
+}
+.feature-content {
+  font-size: 16px;
+}
+.feature-content .text-xs {
+  font-size: 14px;
+  line-height: 1.5;
+}
+.feature-content .text-sm {
+  font-size: 15px;
+  line-height: 1.6;
+}
+.feature-content :is(input, select, textarea) {
+  font-size: 16px;
+}
+.feature-content th {
+  font-size: 13px;
+}
+.feature-content td {
+  font-size: 15px;
+}
+@media (min-width: 761px) and (max-width: 1100px) {
+  :root {
+    --workspace-sidebar-width: 256px;
+  }
+  .sidebar {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
+@media (max-width: 760px) {
+  .sidebar {
+    width: min(280px, calc(100vw - 44px));
+  }
+  .main-shell {
+    margin-left: 0;
+    width: 100%;
+  }
+  .breadcrumb {
+    font-size: 14px;
+  }
+  .feature-content {
+    padding: 25px 18px;
+  }
+}
+
+@media (max-width: 760px) {
+  .breadcrumb-prefix { display: none; }
+  .breadcrumb > strong { font-size: 14px; max-width: 160px; }
+}

@@ -44,3 +44,7 @@ playwright-report/
 
 # Local configuration
 *.local
+
+# Frontend source, despite the repository-wide Python lib/ rule.
+!src/lib/
+!src/lib/**

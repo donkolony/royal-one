@@ -1,4 +1,4 @@
-@import "tailwindcss";
+@layer legacy {
 :root {
   --brand-blue: #113069;
   --brand-red: #af224c;
@@ -638,7 +638,7 @@ main {
   color: #71717a;
   white-space: nowrap;
 }
-.quick-actions button {
+.quick-actions :is(button, a) {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -649,7 +649,7 @@ main {
   padding-left: 21px;
   text-align: left;
 }
-.quick-actions button > svg:last-child {
+.quick-actions :is(button, a) > svg:last-child {
   margin-left: auto;
   color: #71717a;
   width: 13px;
@@ -1768,7 +1768,7 @@ summary {
     gap: 15px;
     padding: 15px;
   }
-  .quick-actions button {
+  .quick-actions :is(button, a) {
     padding-left: 14px;
     font-size: 9px;
   }
@@ -1845,7 +1845,7 @@ summary {
   .quick-actions > span {
     display: none;
   }
-  .quick-actions button:first-of-type {
+  .quick-actions :is(button, a):first-of-type {
     border-left: 0;
     padding-left: 0;
   }
@@ -1981,12 +1981,12 @@ summary {
     padding: 16px 12px;
     gap: 12px;
   }
-  .quick-actions button {
+  .quick-actions :is(button, a) {
     font-size: 10px;
     line-height: 1.5;
     gap: 6px;
   }
-  .quick-actions button > svg:last-child {
+  .quick-actions :is(button, a) > svg:last-child {
     display: none;
   }
   .action-icon svg {
@@ -2180,7 +2180,7 @@ summary {
   .goal-amount strong {
     font-size: 17px;
   }
-  .quick-actions button {
+  .quick-actions :is(button, a) {
     flex-direction: column;
     align-items: flex-start;
     font-size: 9px;
@@ -2221,4 +2221,6 @@ summary {
   height: auto;
   aspect-ratio: 53 / 36;
   object-fit: contain;
+}
+
 }

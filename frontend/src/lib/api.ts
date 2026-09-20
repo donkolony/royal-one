@@ -212,6 +212,29 @@ export async function put<T>(path: string, body: unknown): Promise<T> {
   return request<T>("PUT", path, body);
 }
 
+/** GET a file (CSV, PDF) as a Blob, with the same auth and error handling as every other call. */
+export async function getBlob(path: string): Promise<Blob> {
+  if (isMock()) {
+    throw new ApiError(0, { error: { code: "not_supported", message: "Downloads need the real backend." } });
+  }
+  const response = await send(getUrl(path), { method: "GET" });
+  if (!response.ok) await readBody(response); // throws the ApiError
+  return response.blob();
+}
+
+/** Download a file from the API through the browser (the auth header means a plain link would not work). */
+export async function download(path: string, filename: string): Promise<void> {
+  const blob = await getBlob(path);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
 /** DELETE. The API answers 204 with an empty body. */
 export async function del(path: string): Promise<void> {
   await request<void>("DELETE", path);

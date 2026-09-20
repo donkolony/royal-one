@@ -3,7 +3,7 @@ import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { DarkModeToggle, ErrorBoundary, PageLoader } from "../components/ui";
 import { NotificationBell } from "../components/NotificationBell";
 import { useMediaQuery } from "../lib/hooks";
-import { Home, FileText, Target, Bell, HelpCircle, LogOut, Shield, User, ShieldCheck} from "lucide-react";
+import { Home, FileText, Target, Bell, HelpCircle, LogOut, Shield, User, ShieldCheck, ScrollText} from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 
 const navItems = [
@@ -14,6 +14,7 @@ const navItems = [
   { label: "Reminders", path: "/reminders", icon: <Bell className="w-5 h-5" aria-hidden="true" />, end: false },
   { label: "Requests", path: "/requests", icon: <HelpCircle className="w-5 h-5" aria-hidden="true" />, end: false },
   { label: "Identity", path: "/identity", icon: <ShieldCheck className="w-5 h-5" aria-hidden="true" />, end: false },
+  { label: "My record", path: "/my-record", icon: <ScrollText className="w-5 h-5" aria-hidden="true" />, end: false },
   { label: "Profile", path: "/profile", icon: <User className="w-5 h-5" aria-hidden="true" />, end: false },
 ];
 

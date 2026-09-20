@@ -27,6 +27,7 @@ def build_meta(settings: Settings) -> Dict[str, Any]:
         "api_version": "v1",
         "currency": "ZAR",
         "demo_mode": settings.demo_mode,
+        "retention_years": settings.retention_years,
         "claim_statuses": C.CLAIM_STATUSES,
         "hire_car_statuses": C.HIRE_CAR_STATUSES,
         "reminder_types": C.REMINDER_TYPES,

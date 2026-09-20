@@ -410,6 +410,14 @@ def seed_extended(conn: psycopg.Connection, settings: Settings, storage: Storage
     policy("c12-fun", CLIENT_12, "Liberty", "funeral", "Family funeral plan", "DEMO-FUN-12002", cover_amount_cents=5_000_000, premium_cents=20_000, premium_frequency="monthly")
     event(CLIENT_12, "job_change", 10, "Moved to a new employer")
 
+    # Records older than the retention period (RETENTION_YEARS, default 5): flagged in the owner's retention review, never deleted.
+    old = clock.now() - timedelta(days=365 * 6 + 40)
+    execute(conn, "insert into requests (id, client_id, type, status, payload, submitted_at, updated_at, completed_at, handled_by) values (%s,%s,'policy_document','completed',%s,%s,%s,%s,%s)",
+            (uid("request-old"), CLIENT_3, Jsonb({"document_kind": "policy_schedule"}), old, old, old, ADVISER))
+    execute(conn, "insert into identity_documents (id, client_id, doc_type, filename, content_type, size_bytes, storage_path, status, verification_source, verifier, "
+                  "verified_by, verified_at, expiry_date, uploaded_by, uploaded_at) values (%s,%s,'id_document','old-id.png','image/png',%s,%s,'superseded','simulated_verification','demo_simulated',%s,%s,%s,%s,%s)",
+            (uid("idoc-old"), CLIENT_3, len(PNG_1X1), f"identity/{CLIENT_3}/{uid('idoc-old')}-old-id.png", ADVISER, old, today - timedelta(days=200), CLIENT_3, old))
+
     _seed_compliance(conn, settings, storage, today)
 
 

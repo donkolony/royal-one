@@ -301,6 +301,46 @@ class RequestPatch(Body):
     adviser_response: Optional[str] = Field(default=None, max_length=2000)
 
 
+# ------------------------------------------------------------------------- advice records and consents
+class ProductConsidered(Body):
+    product: str = Field(min_length=1, max_length=120)
+    category: Literal[tuple(C.POLICY_CATEGORIES)]  # type: ignore[valid-type]
+    provider: Optional[str] = Field(default=None, max_length=80)
+
+
+class AdviceDraftBody(Body):
+    client_id: UUID
+    interaction_type: Literal["review", "advice", "consultation", "claim_support"]
+    needs_goals: List[str] = Field(default_factory=list, max_length=10)
+    products_considered: List[ProductConsidered] = Field(default_factory=list, max_length=10)
+    recommendation: str = Field(min_length=3, max_length=1500)
+
+    @field_validator("needs_goals")
+    @classmethod
+    def _short(cls, v: List[str]) -> List[str]:
+        return [x.strip()[:200] for x in v if x.strip()]
+
+
+class AdviceRecordBody(AdviceDraftBody):
+    final_summary: str = Field(min_length=20, max_length=4000)
+    ai_draft: Optional[str] = Field(default=None, max_length=4000)
+    draft_source: Optional[Literal["template", "ai"]] = None
+    approved: bool = False
+    client_acknowledged: bool = False
+    acknowledgement_method: Optional[Literal["in_meeting", "in_app", "verbal"]] = None
+
+
+class AcknowledgeBody(Body):
+    method: Optional[Literal["in_meeting", "verbal"]] = None
+
+
+class ConsentBody(Body):
+    purpose: Literal["data_processing", "marketing", "insurer_sharing"]
+    status: Literal["granted", "withdrawn"]
+    method: Literal["in_app", "in_person", "written"]
+    client_id: Optional[UUID] = None
+
+
 # ---------------------------------------------------------------------------------------- identity vault
 class IdentityVerifyBody(Body):
     expiry_date: Optional[date] = None

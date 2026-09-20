@@ -24,6 +24,7 @@ const ClaimTracking = React.lazy(() => import("./pages/client/ClaimTracking"));
 const ClientRequests = React.lazy(() => import("./pages/client/Requests"));
 const ClientProfile = React.lazy(() => import("./pages/client/Profile"));
 const ClientIdentity = React.lazy(() => import("./pages/client/Identity"));
+const MyRecord = React.lazy(() => import("./pages/client/MyRecord"));
 
 // ── Advisor pages ────────────────────────────────────────────────────────────
 const AdvisorDashboard = React.lazy(() => import("./pages/advisor/Dashboard"));
@@ -42,6 +43,9 @@ const Email = React.lazy(() => import("./pages/advisor/Email"));
 const Radar = React.lazy(() => import("./pages/staff/Radar"));
 const BusinessHealth = React.lazy(() => import("./pages/staff/BusinessHealth"));
 const Drilldown = React.lazy(() => import("./pages/staff/Drilldown"));
+const AuditLog = React.lazy(() => import("./pages/staff/AuditLog"));
+const Compliance = React.lazy(() => import("./pages/staff/Compliance"));
+const Privacy = React.lazy(() => import("./pages/shared/Privacy"));
 
 // Dev-only kitchen sink for the shared UI kit; import.meta.env.DEV is false in production builds.
 const UiPreview = import.meta.env.DEV ? React.lazy(() => import("./components/dev/UiPreview")) : null;
@@ -82,6 +86,8 @@ export function Router() {
             <Route path="/claims/new" element={<Titled title="Register a claim"><RegisterClaim /></Titled>} />
             <Route path="/claims/:id" element={<Titled title="Claim"><ClaimTracking /></Titled>} />
             <Route path="/requests" element={<Titled title="Requests"><ClientRequests /></Titled>} />
+            <Route path="/my-record" element={<Titled title="My record"><MyRecord /></Titled>} />
+            <Route path="/privacy" element={<Titled title="Privacy"><Privacy /></Titled>} />
             <Route path="/identity" element={<Titled title="Identity documents"><ClientIdentity /></Titled>} />
             <Route path="/profile" element={<Titled title="My profile"><ClientProfile /></Titled>} />
           </Route>
@@ -97,6 +103,9 @@ export function Router() {
             <Route path="clients/:clientId" element={<Titled title="Client"><ClientDetail /></Titled>} />
             <Route path="claims" element={<Titled title="Claims pipeline"><ClaimsPipeline /></Titled>} />
             <Route path="claims/:claimId" element={<Titled title="Claim"><ClaimDetail /></Titled>} />
+            <Route path="compliance" element={<Titled title="Compliance"><Compliance /></Titled>} />
+            <Route path="audit" element={<Titled title="Audit log"><AuditLog /></Titled>} />
+            <Route path="privacy" element={<Titled title="Privacy"><Privacy /></Titled>} />
           </Route>
         </Route>
 
@@ -104,6 +113,9 @@ export function Router() {
         <Route path="/advisor" element={<ProtectedRoute role="advisor" />}>
           <Route element={<StaffLayout />}>
             <Route path="radar" element={<Titled title="Opportunities"><Radar /></Titled>} />
+            <Route path="compliance" element={<Titled title="Compliance"><Compliance /></Titled>} />
+            <Route path="audit" element={<Titled title="Audit log"><AuditLog /></Titled>} />
+            <Route path="privacy" element={<Titled title="Privacy"><Privacy /></Titled>} />
             <Route index element={<Titled title="Adviser dashboard"><AdvisorDashboard /></Titled>} />
             <Route path="dashboard" element={<Navigate to="/advisor" replace />} />
             <Route path="clients" element={<Titled title="Clients"><AdvisorClients /></Titled>} />

@@ -144,3 +144,34 @@ export interface IdentityVault {
   verifier: { name: string; is_simulated: boolean; note: string };
   rules: { proof_of_address_max_age_days: number; expiry_warning_days: number };
 }
+
+// ---- Compliance (5.20)
+export interface AdviceRecord {
+  id: UUID; client: { id: UUID; full_name: string | null }; adviser: { id: UUID; full_name: string | null }; interaction_type: string;
+  needs_goals: string[]; products_considered: { product: string; category: string; provider?: string | null }[]; recommendation: string;
+  ai_draft: string | null; draft_source: "template" | "ai" | null; final_summary: string; edited_from_draft: boolean; client_acknowledged: boolean;
+  acknowledged_at: ISODateTime | null; acknowledgement_method: string | null; approved_by: UUID; approved_at: ISODateTime; created_at: ISODateTime;
+}
+export interface AdviceDraft { draft: { summary: string; source: "template" | "ai" }; warnings: string[]; requires_human_review: true; note: string }
+export type ConsentPurpose = "data_processing" | "marketing" | "insurer_sharing";
+export interface ConsentState {
+  client_id: UUID; notice_version: string; notice_is_draft: boolean; purposes: Record<ConsentPurpose, string>;
+  current: Record<ConsentPurpose, { status: "granted" | "withdrawn"; method: string; notice_version: string; recorded_at: ISODateTime } | null>;
+  history: { id: UUID; purpose: ConsentPurpose; status: string; method: string; notice_version: string; recorded_at: ISODateTime; recorded_by: string | null }[];
+}
+export interface CompliancePack {
+  reference: string; generated_at: ISODateTime; generated_by: { id: UUID; full_name: string; role: string }; generation_ms: number; content_sha256: string;
+  client: { id: UUID; full_name: string; adviser: { id: UUID; full_name: string } };
+  compliance_status: Record<"identity" | "advice" | "consent", { state: string; ok: boolean }>;
+  advice_records: AdviceRecord[]; claims: unknown[]; requests: unknown[]; access_history: AuditEntry[];
+  integrity: { audit_chain_ok: boolean; audit_entries_checked: number; note: string }; excluded_for_data_minimisation: string[];
+}
+export interface TimelineItem { id: number; occurred_at: ISODateTime; actor: { id: UUID | null; full_name: string | null; role: string }; action: string; summary: string; entity_type: string; entity_id: string | null }
+export interface ComplianceOverview {
+  summary: ComplianceSummary & { gaps: ComplianceGap[] };
+  clients: { id: UUID; full_name: string; adviser: string; identity: string; advice: string; consent: string }[];
+}
+export interface RetentionReview {
+  retention_years: number; cutoff_date: ISODate; total: number; action: "flag_only"; note: string;
+  items: { kind: string; label: string; client: { id: UUID; full_name: string }; date: ISODateTime; entity_id: UUID }[];
+}

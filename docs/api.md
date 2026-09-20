@@ -1507,6 +1507,18 @@ A verified identity document is captured **once**, stored in the private bucket 
 
 **Expiry.** An ID document within 60 days of expiry creates an `identity_expiry` reminder (client and adviser), a compliance-health flag, and an `expiring_document` radar touchpoint. A proof of address creates `proof_of_address_stale` after 90 days.
 
+### 5.20 Compliance: advice records, consents, the compliance pack, timelines, retention
+
+**Advice records: AI drafts, the human commits.** `POST /advice-records/draft` (adviser; body `{client_id, interaction_type, needs_goals[], products_considered[{product, category, provider?}], recommendation}`) returns `{draft: {summary, source: "template" | "ai"}, warnings, requires_human_review: true}` and **stores nothing**. The template is deterministic; a model may polish it, and the polish is discarded (with a warning) if it adds a figure that is not in the notes. `POST /advice-records` is the commit: it needs the adviser's own final text (`final_summary`, 20+ characters), the original `ai_draft` and `draft_source` if any, and `approved: true`, otherwise `422`. There is no draft status, so an unapproved text can never be part of a client's record. `edited_from_draft` is computed. A `review` also sets `last_annual_review_date` and logs that the stored ID verification was used. If the client has not acknowledged in the meeting they are asked to (`POST /advice-records/{id}/acknowledge`; a client acknowledges `in_app`, an adviser records `in_meeting` or `verbal`). `GET /advice-records?client_id=` (a client sees their own).
+
+**Consents.** `GET /consents?client_id=` returns `{notice_version, notice_is_draft: true, purposes, current, history}`. `POST /consents` appends `{purpose: data_processing | marketing | insurer_sharing, status: granted | withdrawn, method: in_app | in_person | written, client_id?}`: a client uses `in_app`, an adviser `in_person` or `written`. The current state is the newest row per purpose; a withdrawal notifies the adviser. The privacy notice text is a **draft for legal review**; a recorded consent is a record of what the person said, not a claim of compliance.
+
+**The compliance pack.** `GET /clients/{id}/compliance` (staff, in scope) assembles in one call: `client`, `compliance_status` (identity, advice, consent), `identity` (documents metadata without URLs, reuse log), `consents`, `advice_records`, `policies`, `documents` (metadata only), `claims` and `requests` with their timelines, `access_history` (the audit entries about this client), and `integrity` (whether the audit hash chain verifies). It carries `reference`, `generated_at`, `generated_by`, `generation_ms` and a `content_sha256` of its content so a recipient can tell if it was altered. `GET /clients/{id}/compliance/pack.pdf` is the same pack as a PDF. Both are audited (`compliance.pack_exported`). **Excluded for data minimisation:** income, dependants, bank details, request field values and document contents.
+
+**Timelines.** `GET /clients/{id}/timeline` (staff) and `GET /me/timeline` (a client's own, client-safe actions only): the client's history from the audit trail, newest first, without "who looked" noise and internal sales notes.
+
+**Overview and retention.** `GET /compliance/overview` (staff) returns the compliance summary and gap list for the caller's clients plus a per-client state table (for the regulator-request picker). `GET /compliance/retention` (owner) lists records past the configured retention period (`RETENTION_YEARS`, a **placeholder** for counsel to set): closed claims, closed requests and superseded or rejected identity documents. It is **flag only**: nothing is deleted automatically.
+
 ---
 
 ## 6. End-to-end flows
@@ -1701,6 +1713,18 @@ Until the backend is deployed, the JSON examples in Section 5 can be used as fix
 | 95 | GET | `/identity/{document_id}/url` | any | P1 |
 | 96 | POST | `/identity/{document_id}/verify` | advisor | P0 |
 | 97 | POST | `/identity/{document_id}/reject` | advisor | P1 |
+| 98 | GET | `/advice-records` | any | P0 |
+| 99 | POST | `/advice-records/draft` | advisor | P0 |
+| 100 | POST | `/advice-records` | advisor | P0 |
+| 101 | POST | `/advice-records/{record_id}/acknowledge` | any | P1 |
+| 102 | GET | `/consents` | any | P0 |
+| 103 | POST | `/consents` | any | P0 |
+| 104 | GET | `/clients/{client_id}/compliance` | staff | P0 |
+| 105 | GET | `/clients/{client_id}/compliance/pack.pdf` | staff | P0 |
+| 106 | GET | `/clients/{client_id}/timeline` | staff | P1 |
+| 107 | GET | `/me/timeline` | client | P1 |
+| 108 | GET | `/compliance/overview` | staff | P0 |
+| 109 | GET | `/compliance/retention` | owner | P1 |
 
 All paths except `/health` are relative to `/api/v1`.
 
@@ -1711,6 +1735,7 @@ All paths except `/health` are relative to `/api/v1`.
 | Version | Date | Change |
 |---|---|---|
 | 0.1 | 2026-09-19 | First draft of the contract from PRD v1.0. Not yet implemented. |
+| 0.7.0 | 2026-09-20 | Compliance (section 5.20, endpoints 98 to 109): advice records with a draft-then-approve flow, consents, the exportable compliance pack (JSON and PDF), client timelines, the retention review; `GET /meta` returns `retention_years`. Additive. |
 | 0.6.0 | 2026-09-20 | Identity vault (section 5.19, endpoints 93 to 97); `GET /claims/{id}` gains `identity`; reminder types `identity_expiry` and `proof_of_address_stale`. Additive. |
 | 0.5.0 | 2026-09-20 | Workflow engine (section 5.18, endpoints 87 to 92): `GET /workflows`, in-app notifications, request timelines, `GET /requests/types` extra keys, `GET /meta` `demo_mode`, demo controls. `POST /requests` accepts any type in the workflow config. Additive. |
 | 0.4.0 | 2026-09-20 | Business Health (section 5.17, endpoints 84 to 86) and the compliance data model (identity, consents, advice records) behind the compliance score. Additive. |
